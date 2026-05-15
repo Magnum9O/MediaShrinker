@@ -4,7 +4,10 @@ This folder contains the "deploy-only" entrypoint for running MediaShrinker with
 
 The image is built from the repository root (two levels up), so you still need the whole repo checkout.
 
-This is the only supported way to run MediaShrinker.
+There are now two supported Docker Compose paths:
+
+- `docker-compose.yml`: local build from repo checkout
+- `docker-compose.ghcr.yml`: pull a prebuilt image from GHCR
 
 ## What To Commit vs Ignore
 
@@ -61,6 +64,49 @@ Recommended workflow: run PLAN first, check `/dashboard` and the run detail page
 
 ```bash
 docker compose up -d --build mediashrinker
+```
+
+## Registry / Git-first Start
+
+If your fork publishes `ghcr.io/<owner>/mediashrinker`, use:
+
+```bash
+cp .env.ghcr.example .env
+```
+
+Edit `.env`:
+
+- `IMAGE_NAME`: for example `ghcr.io/magnum9o/mediashrinker:latest`
+- the same bind mounts as the local-build flow
+
+Then launch:
+
+```bash
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d mediashrinker
+```
+
+VAAPI:
+
+```bash
+docker compose -f docker-compose.ghcr.yml --profile vaapi up -d mediashrinker-vaapi
+```
+
+Synology VAAPI note:
+
+- if the host uses a dedicated video group like `videodriver`, add the Synology override:
+
+```bash
+docker compose \
+  -f docker-compose.ghcr.yml \
+  -f docker-compose.ghcr.synology-vaapi.yml \
+  --profile vaapi up -d mediashrinker-vaapi
+```
+
+NVIDIA:
+
+```bash
+docker compose -f docker-compose.ghcr.yml --profile nvidia up -d mediashrinker-nvidia
 ```
 
 Open:

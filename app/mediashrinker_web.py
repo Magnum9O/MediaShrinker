@@ -102,6 +102,24 @@ def display_action(action: Optional[str], need_transcode: Any, need_subfix: Any)
 
 
 APP_NAME = "MediaShrinker"
+VIDEO_EXTS = {".mkv", ".mp4", ".m4v", ".mov", ".avi", ".wmv", ".mpg", ".mpeg", ".ts", ".m2ts"}
+
+
+def tail_lines(path: Path, limit: int = 80) -> List[str]:
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        return lines[-limit:]
+    except Exception:
+        return []
+
+
+def classify_chip(text: str) -> str:
+    lower = (text or "").lower()
+    if any(tok in lower for tok in ("fail", "error", "abort")):
+        return "bad"
+    if any(tok in lower for tok in ("transcode", "process", "run", "scan", "ocr", "subfix")):
+        return "warn"
+    return "ok"
 
 
 BASE_CSS = r"""
@@ -346,11 +364,46 @@ class App:
             "tessdata_prefix": os.environ.get("MEDIA_TESSDATA_PREFIX", "/usr/share/tesseract-ocr/5/tessdata"),
             "encoding_profile": os.environ.get("MEDIA_ENCODING_PROFILE", "balanced"),
             "notify_url": os.environ.get("MEDIA_NOTIFY_URL", ""),
+            "target_path": "",
         }
 
     @staticmethod
     def _enabled(value: Any) -> bool:
         return str(value or "").strip().lower() in ("1", "true", "yes", "y", "on")
+
+    @staticmethod
+    def _is_video_file(path: Path) -> bool:
+        return path.is_file() and path.suffix.lower() in VIDEO_EXTS
+
+    def title_targets(self, movies_dir: str, tv_dir: str) -> List[Dict[str, str]]:
+        entries: List[Dict[str, str]] = []
+        for library_name, root_s in (("movies", movies_dir), ("series", tv_dir)):
+            root = Path(root_s)
+            try:
+                children = sorted(root.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+            except Exception:
+                continue
+            for child in children:
+                if not (child.is_dir() or self._is_video_file(child)):
+                    continue
+                entries.append(
+                    {
+                        "library": library_name,
+                        "path": str(child),
+                        "name": child.name,
+                        "kind": "folder" if child.is_dir() else "file",
+                    }
+                )
+        return entries
+
+    def live_log_info(self, report_json_path: str) -> Dict[str, Any]:
+        json_path = Path(report_json_path)
+        log_path = json_path.with_suffix(".log")
+        lines = tail_lines(log_path, limit=120)
+        return {
+            "report_log_path": str(log_path),
+            "log_tail": lines,
+        }
 
     def resolve_encoder(self, encoder: str) -> str:
         enc = str(encoder or "auto").strip()
@@ -433,6 +486,10 @@ class App:
         notify_url = getv("notify_url", cfg.get("notify_url", ""))
         if notify_url:
             cmd += ["--notify-url", notify_url]
+        target_path = getv("target_path", cfg.get("target_path", "")).strip()
+        run_scope = getv("run_scope", "library").strip().lower()
+        if run_scope == "single" and target_path:
+            cmd += ["--target-path", target_path]
         if resume_run_id is not None:
             cmd += ["--resume-run-id", str(resume_run_id)]
         return cmd
@@ -670,12 +727,40 @@ class App:
         running = bool(status.get("managed_running"))
         effective_encoder = self.resolve_encoder(cfg.get("encoder", "auto"))
         aborted_run = self.latest_aborted_run()
+        title_targets = self.title_targets(cfg["movies_dir"], cfg["tv_dir"])
+        active_target = str((payload.get("config") or {}).get("target_path") or "").strip()
 
         def checked(name: str) -> str:
             return " checked" if self._enabled(cfg.get(name)) else ""
 
         def selected(current: Any, value: str) -> str:
             return " selected" if str(current or "") == value else ""
+
+        target_options = [
+            "<option value=''>Full library scan / run</option>",
+        ]
+        if title_targets:
+            current_group = None
+            for item in title_targets:
+                if item["library"] != current_group:
+                    if current_group is not None:
+                        target_options.append("</optgroup>")
+                    current_group = item["library"]
+                    label = "Movies" if current_group == "movies" else "Series"
+                    target_options.append(f"<optgroup label='{label}'>")
+                suffix = "folder" if item["kind"] == "folder" else "single file"
+                target_options.append(
+                    f"<option value='{h(item['path'])}' data-library='{h(item['library'])}'>"
+                    f"{h(item['name'])} [{suffix}]"
+                    "</option>"
+                )
+            if current_group is not None:
+                target_options.append("</optgroup>")
+        target_options_html = "".join(target_options)
+        single_scope_default = "single" if active_target else "library"
+        current_target_html = (
+            f"<div class='chip warn'>active target: {h(Path(active_target).name)}</div>" if active_target else ""
+        )
 
         # Unified Control Room UI (global theme + English-only).
         message_html = f"<div class='card' style='color:var(--ok)'>{h(message)}</div>" if message else ""
@@ -697,16 +782,43 @@ class App:
 <div class="grid">
   <div class="card">
     <h2>Start job</h2>
-    <div class="muted" style="font-size:12px;margin-bottom:10px">
-      The web server starts the worker process and the worker writes <span class="mono">run-*.json</span> live to
-      <span class="mono">{h(cfg['report_dir'])}</span>. The dashboard reads that JSON, so you can operate purely from the UI.
+    <div class="muted" style="font-size:12px;margin-bottom:14px">
+      Use full-library mode for broad scans, or single-title mode to inspect or convert one movie / one series folder only.
+      Live status is written to <span class="mono">{h(cfg['report_dir'])}</span>.
     </div>
 
     <form method="post" action="/ops/start">
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin-bottom:12px">
+        <div>
+          <label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Run scope</label>
+          <select name="run_scope" id="run-scope">
+            <option value="library"{selected(single_scope_default, 'library')}>Full library</option>
+            <option value="single"{selected(single_scope_default, 'single')}>Single title / folder</option>
+          </select>
+        </div>
+        <div>
+          <label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Title explorer</label>
+          <input id="target-filter" placeholder="Filter dropdown titles">
+        </div>
+      </div>
+
+      <div id="single-target-wrap" class="card" style="margin:0 0 12px 0;padding:12px;background:var(--paper2);display:none">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+          <div>
+            <div style="font-weight:700">Single title selection</div>
+            <div class="muted" style="font-size:12px">Pick one movie folder, one series folder, or a direct video file at library root.</div>
+          </div>
+          {current_target_html}
+        </div>
+        <select name="target_path" id="target-path">
+          {target_options_html}
+        </select>
+      </div>
+
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">
         <div>
           <label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Library</label>
-          <select name="library">
+          <select name="library" id="library-select">
             <option value="both"{selected(cfg['library'], 'both')}>movies + series</option>
             <option value="movies"{selected(cfg['library'], 'movies')}>movies</option>
             <option value="series"{selected(cfg['library'], 'series')}>series</option>
@@ -786,6 +898,65 @@ class App:
     <pre>{h(json.dumps({**cfg, 'effective_encoder': effective_encoder}, indent=2, ensure_ascii=False))}</pre>
   </div>
 </div>
+<script>
+(function(){{
+  const scope = document.getElementById('run-scope');
+  const lib = document.getElementById('library-select');
+  const wrap = document.getElementById('single-target-wrap');
+  const select = document.getElementById('target-path');
+  const filter = document.getElementById('target-filter');
+  const baseOptions = Array.from(select.options).map(o => ({{
+    value:o.value,
+    text:o.text,
+    library:o.dataset.library || '',
+  }}));
+
+  function renderOptions(){{
+    const currentLib = lib.value;
+    const q = (filter.value || '').trim().toLowerCase();
+    const currentValue = select.value;
+    select.innerHTML = '';
+    let hasAny = false;
+    for (const item of baseOptions){{
+      if(item.value){{
+        if(currentLib !== 'both' && item.library && item.library !== currentLib) continue;
+        if(q && !item.text.toLowerCase().includes(q)) continue;
+      }}
+      const opt = document.createElement('option');
+      opt.value = item.value;
+      opt.textContent = item.text;
+      if(item.library) opt.dataset.library = item.library;
+      if(item.value === currentValue) opt.selected = true;
+      select.appendChild(opt);
+      hasAny = true;
+    }}
+    if(!hasAny){{
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'No matching titles';
+      select.appendChild(opt);
+    }}
+  }}
+
+  function syncScope(){{
+    const single = scope.value === 'single';
+    wrap.style.display = single ? 'block' : 'none';
+    if(single && select.value){{
+      const selected = select.options[select.selectedIndex];
+      const libValue = selected && selected.dataset.library;
+      if(libValue) lib.value = libValue;
+    }}
+    renderOptions();
+  }}
+
+  scope.addEventListener('change', syncScope);
+  lib.addEventListener('change', renderOptions);
+  filter.addEventListener('input', renderOptions);
+  select.addEventListener('change', syncScope);
+  renderOptions();
+  syncScope();
+}})();
+</script>
 """
         return page("MediaShrinker Control Room", body)
 
@@ -1182,6 +1353,7 @@ class App:
                 continue
             status = str(p.get("status") or "").lower()
             if status == "running":
+                extra = self.live_log_info(str(rp))
                 return {
                     "ok": True,
                     "run_id": 0,
@@ -1189,6 +1361,7 @@ class App:
                     "report_json_path": str(rp),
                     "payload": p,
                     "source": "report-live",
+                    **extra,
                 }
 
         # 2) Fallback to latest run linked from DB.
@@ -1228,6 +1401,7 @@ class App:
                 "report_json_path": str(report_path),
             }
 
+        extra = self.live_log_info(str(report_path))
         return {
             "ok": True,
             "run_id": run_id,
@@ -1235,6 +1409,7 @@ class App:
             "report_json_path": str(report_path),
             "payload": payload,
             "source": "db-latest",
+            **extra,
         }
 
     def live_page(self) -> str:
@@ -1254,6 +1429,51 @@ class App:
         mode = p.get("mode") or "-"
         run_id = int(live.get("run_id") or 0)
         cfg = p.get("config") or {}
+        results = p.get("results") or []
+        plan = p.get("plan") or []
+        jobs_live = p.get("jobs_live") or []
+        log_tail = live.get("log_tail") or []
+        results_paths = {str(r.get("path")) for r in results if r.get("path")}
+        pending = [x for x in plan if str(x.get("path") or "") and str(x.get("path") or "") not in results_paths]
+        target_path = str(cfg.get("target_path") or "").strip()
+
+        status_cards = [
+            ("Run", f"#{run_id or '-'}"),
+            ("Mode", str(mode)),
+            ("Status", str(status)),
+            ("Wall", hms(p.get("run_wall_sec"))),
+            ("Scanned", str(len(plan))),
+            ("Queued", str(totals.get("to_process_count", 0))),
+            ("Done", str(totals.get("results_done_count", 0))),
+            ("Delta", f"{gib(totals.get('processed_delta_bytes'))} GiB"),
+        ]
+        cards_html = "".join(
+            f"<div class='card' style='margin:0;padding:12px;background:var(--paper2)'><div class='muted' style='font-size:12px'>{h(label)}</div><div style='font-size:24px;font-weight:800'>{h(value)}</div></div>"
+            for label, value in status_cards
+        )
+        live_jobs_html = "".join(
+            f"<div class='item'><div class='n'>J{int(j.get('slot') or 0)}</div><div class='m'>{h(j.get('text') or 'idle')}</div></div>"
+            for j in jobs_live
+        ) or "<div class='item m'>No active worker details yet.</div>"
+        pending_html = "".join(
+            "<div class='item'>"
+            f"<div class='n'>{h(Path(str(x.get('path') or '')).name)}</div>"
+            "<div class='m'>"
+            f"{'<span class=\"chip warn\">transcode</span>' if x.get('need_transcode') else ''}"
+            f"{'<span class=\"chip ok\">subfix</span>' if x.get('need_subfix') else ''}"
+            f"{h(' | '.join((x.get('reasons_video') or [])[:3]))}"
+            "</div>"
+            "</div>"
+            for x in pending[:20]
+        ) or "<div class='item m'>No pending items.</div>"
+        recent_html = "".join(
+            "<div class='item'>"
+            f"<div class='n'>{h(Path(str(x.get('path') or '')).name)}</div>"
+            f"<div class='m'><span class='chip {classify_chip(str(x.get('action') or x.get('error') or 'done'))}'>{h(x.get('action') or ('failed' if x.get('error') else 'done'))}</span> {h(x.get('error') or '')}</div>"
+            "</div>"
+            for x in results[-15:]
+        ) or "<div class='item m'>No results yet.</div>"
+        log_html = h("\n".join(log_tail)) if log_tail else "No live log lines yet."
         chips = (
             f"<span class='chip'>run_id: {run_id}</span>"
             f"<span class='chip'>status: {h(status)}</span>"
@@ -1274,7 +1494,18 @@ class App:
   {nav_html()}
 </div>
 <div class="card"><div class="chips">{chips}</div></div>
+<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">{cards_html}</div>
 <div class="grid">
+  <div class="card">
+    <h2>Run scope</h2>
+    <pre>{h(json.dumps({
+        "library": cfg.get("library"),
+        "target_path": target_path or "(full library)",
+        "encoder": cfg.get("encoder"),
+        "jobs": cfg.get("jobs"),
+        "profile": cfg.get("encoding_profile"),
+    }, indent=2, ensure_ascii=False))}</pre>
+  </div>
   <div class="card">
     <h2>Config</h2>
     <pre>{h(json.dumps(cfg, indent=2, ensure_ascii=False))}</pre>
@@ -1283,6 +1514,14 @@ class App:
     <h2>Totals</h2>
     <pre>{h(json.dumps(totals, indent=2, ensure_ascii=False))}</pre>
   </div>
+</div>
+<div class="grid" style="grid-template-columns:1fr 1fr;gap:12px">
+  <div class="card"><h2>Active workers</h2><div class="list">{live_jobs_html}</div></div>
+  <div class="card"><h2>Pending queue preview</h2><div class="list">{pending_html}</div></div>
+</div>
+<div class="grid" style="grid-template-columns:1fr 1fr;gap:12px">
+  <div class="card"><h2>Recent results</h2><div class="list">{recent_html}</div></div>
+  <div class="card"><h2>Live log tail</h2><div class="muted" style="font-size:12px;margin-bottom:8px">{h(live.get('report_log_path') or '')}</div><pre>{log_html}</pre></div>
 </div>
 <script>
 setTimeout(function() {{ window.location.reload(); }}, 2000);
@@ -1420,9 +1659,12 @@ setTimeout(function() {{ window.location.reload(); }}, 2000);
             "run_id": int(live["run_id"]),
             "started": live.get("started"),
             "report_json_path": live.get("report_json_path"),
+            "report_log_path": live.get("report_log_path"),
+            "log_tail": live.get("log_tail") or [],
             "status": p.get("status"),
             "mode": p.get("mode"),
             "run_wall_sec": p.get("run_wall_sec"),
+            "target_path": str((p.get("config") or {}).get("target_path") or ""),
             "totals": totals,
             "kpi": {
                 "converting": active_jobs,
@@ -1430,6 +1672,10 @@ setTimeout(function() {{ window.location.reload(); }}, 2000);
                 "done": done,
                 "failed": failed,
                 "progress_pct": pct_done,
+            },
+            "plan_stats": {
+                "scanned": len(plan),
+                "pending_total": len(pending_all),
             },
             "active_jobs_live": active_live,
             "active_cards": active_cards,
@@ -1439,7 +1685,6 @@ setTimeout(function() {{ window.location.reload(); }}, 2000);
         }
 
     def dashboard_page(self) -> str:
-        # Unified dashboard look (same global theme as other pages).
         body = f"""
 <div class="topbar">
   <div class="brand">
@@ -1450,67 +1695,108 @@ setTimeout(function() {{ window.location.reload(); }}, 2000);
 </div>
 
 <style>
-.kpi-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; }}
-.kpi {{ background:var(--paper2); border:1px solid var(--line); border-radius:14px; padding:12px; }}
-.kpi .label {{ color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.7px; }}
-.kpi .val {{ font-size:26px; font-weight:800; margin-top:6px; }}
-.progress-wrap {{ margin: 12px 0 14px; }}
+.hero {{ display:grid; grid-template-columns:1.5fr 1fr; gap:12px; margin-bottom:12px; }}
+.hero-main {{ padding:18px; background:linear-gradient(135deg, rgba(124,201,255,.16), rgba(62,201,167,.10)); }}
+.hero h2 {{ margin:0 0 6px; font-size:24px; }}
+.hero-copy {{ color:var(--muted); font-size:13px; line-height:1.5; }}
+.scope-card {{ display:grid; gap:10px; align-content:start; }}
+.scope-title {{ font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.7px; }}
+.scope-value {{ font-size:18px; font-weight:800; word-break:break-word; }}
+.kpi-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; }}
+.kpi {{ background:var(--paper2); border:1px solid var(--line); border-radius:16px; padding:14px; }}
+.kpi .label {{ color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.8px; }}
+.kpi .val {{ font-size:28px; font-weight:800; margin-top:8px; }}
+.progress-wrap {{ margin: 14px 0 16px; }}
 .progress-head {{ display:flex; justify-content:space-between; color:var(--muted); font-size:12px; margin-bottom:6px; }}
-.progress {{ height:14px; border-radius:999px; border:1px solid var(--line); background:rgba(255,255,255,.08); overflow:hidden; }}
+.progress {{ height:16px; border-radius:999px; border:1px solid var(--line); background:rgba(255,255,255,.08); overflow:hidden; }}
 .progress > i {{ display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--accent),var(--accent2)); box-shadow:0 0 18px rgba(62,201,167,.24); transition:width .5s ease; }}
-.panel {{ background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:12px; }}
-.panel h3 {{ margin:0 0 8px; font-size:15px; letter-spacing:.2px; }}
-.list {{ max-height: 320px; overflow:auto; }}
-.item {{ border-bottom:1px solid rgba(255,255,255,.10); padding:7px 0; }}
+.layout {{ display:grid; grid-template-columns:1.2fr .9fr; gap:12px; }}
+.panel {{ background:var(--paper); border:1px solid var(--line); border-radius:16px; padding:14px; }}
+.panel h3 {{ margin:0 0 10px; font-size:15px; letter-spacing:.2px; }}
+.list {{ max-height: 340px; overflow:auto; }}
+.item {{ border-bottom:1px solid rgba(255,255,255,.10); padding:9px 0; }}
 .item:last-child {{ border-bottom:0; }}
 .item .n {{ font-weight:700; font-size:13px; color:var(--ink); }}
 .item .m {{ font-size:12px; color:var(--muted); }}
-.two-col {{ display:grid; grid-template-columns:1.2fr 1fr; gap:12px; }}
-@media (max-width: 920px) {{ .two-col {{ grid-template-columns:1fr; }} }}
+.stack {{ display:grid; gap:12px; }}
 .spark-row {{ display:grid; grid-template-columns:84px 1fr 70px; gap:8px; align-items:center; margin-bottom:6px; }}
 .spark-bar {{ height:8px; border-radius:999px; background:rgba(255,255,255,.10); overflow:hidden; }}
 .spark-bar i {{ display:block; height:100%; background:linear-gradient(90deg,var(--accent),var(--accent2)); width:0%; }}
+.log-pre {{ min-height:220px; max-height:340px; }}
+@media (max-width: 920px) {{
+  .hero {{ grid-template-columns:1fr; }}
+  .layout {{ grid-template-columns:1fr; }}
+}}
 </style>
+
+<div class="hero">
+  <div class="card hero-main">
+    <h2>Run pulse</h2>
+    <div class="hero-copy">
+      Fast overview of the current plan or conversion run, with live workers, queue preview, recent output and log tail.
+    </div>
+    <div class="progress-wrap">
+      <div class="progress-head">
+        <span id="p-status">status: -</span>
+        <span id="p-count">0 / 0</span>
+      </div>
+      <div class="progress"><i id="p-bar"></i></div>
+    </div>
+  </div>
+  <div class="card scope-card">
+    <div>
+      <div class="scope-title">Scope</div>
+      <div class="scope-value" id="scope-title">Full library</div>
+    </div>
+    <div>
+      <div class="scope-title">Mode</div>
+      <div class="scope-value" id="scope-mode">-</div>
+    </div>
+    <div>
+      <div class="scope-title">Log</div>
+      <div class="mono muted" id="scope-log">-</div>
+    </div>
+  </div>
+</div>
 
 <div class="kpi-grid">
   <div class="kpi"><div class="label">Run</div><div class="val" id="k-run">-</div></div>
-  <div class="kpi"><div class="label">Converting</div><div class="val" id="k-conv">0</div></div>
+  <div class="kpi"><div class="label">Active jobs</div><div class="val" id="k-conv">0</div></div>
   <div class="kpi"><div class="label">Queued</div><div class="val" id="k-queue">0</div></div>
   <div class="kpi"><div class="label">Done</div><div class="val" id="k-done">0</div></div>
   <div class="kpi"><div class="label">Failed</div><div class="val" id="k-fail">0</div></div>
+  <div class="kpi"><div class="label">Scanned</div><div class="val" id="k-scanned">0</div></div>
   <div class="kpi"><div class="label">Input GiB</div><div class="val" id="k-in">0.00</div></div>
   <div class="kpi"><div class="label">Output GiB</div><div class="val" id="k-out">0.00</div></div>
   <div class="kpi"><div class="label">Delta GiB</div><div class="val" id="k-delta">0.00</div></div>
   <div class="kpi"><div class="label">Delta %</div><div class="val" id="k-delta-p">-</div></div>
 </div>
 
-<div class="progress-wrap">
-  <div class="progress-head">
-    <span id="p-status">status: -</span>
-    <span id="p-count">0 / 0</span>
+<div class="layout">
+  <div class="stack">
+    <div class="panel">
+      <h3>Active workers</h3>
+      <div id="active-list" class="list"></div>
+    </div>
+    <div class="panel">
+      <h3>Latest completed</h3>
+      <div id="done-list" class="list"></div>
+    </div>
+    <div class="panel">
+      <h3>Run history (last 20)</h3>
+      <div id="history"></div>
+    </div>
   </div>
-  <div class="progress"><i id="p-bar"></i></div>
-</div>
-
-<div class="two-col">
-  <div class="panel">
-    <h3>Active (converting now)</h3>
-    <div id="active-list" class="list"></div>
+  <div class="stack">
+    <div class="panel">
+      <h3>Queue preview</h3>
+      <div id="queue-list" class="list"></div>
+    </div>
+    <div class="panel">
+      <h3>Live log tail</h3>
+      <pre id="log-tail" class="log-pre">waiting for data...</pre>
+    </div>
   </div>
-  <div class="panel">
-    <h3>Queue (preview)</h3>
-    <div id="queue-list" class="list"></div>
-  </div>
-</div>
-
-<div class="panel" style="margin-top:12px;">
-  <h3>Latest completed</h3>
-  <div id="done-list" class="list"></div>
-</div>
-
-<div class="panel" style="margin-top:12px;">
-  <h3>Run history (last 20)</h3>
-  <div id="history"></div>
 </div>
 
 <script>
@@ -1534,6 +1820,7 @@ async function loadDash(){{
     document.getElementById('k-queue').textContent = d.kpi.queued;
     document.getElementById('k-done').textContent = d.kpi.done;
     document.getElementById('k-fail').textContent = d.kpi.failed;
+    document.getElementById('k-scanned').textContent = (d.plan_stats && d.plan_stats.scanned) || 0;
     document.getElementById('k-in').textContent = fmtGiB(d.totals.processed_input_bytes);
     document.getElementById('k-out').textContent = fmtGiB(d.totals.processed_output_bytes);
     document.getElementById('k-delta').textContent = fmtGiB(d.totals.processed_delta_bytes);
@@ -1541,6 +1828,9 @@ async function loadDash(){{
     document.getElementById('p-status').textContent = 'status: ' + (d.status || '-');
     document.getElementById('p-count').textContent = (d.kpi.done||0) + ' / ' + (d.totals.to_process_count||0);
     document.getElementById('p-bar').style.width = Math.max(0, Math.min(100, d.kpi.progress_pct || 0)) + '%';
+    document.getElementById('scope-title').textContent = d.target_path ? d.target_path.split(/[\\\\/]/).pop() : 'Full library';
+    document.getElementById('scope-mode').textContent = d.mode || '-';
+    document.getElementById('scope-log').textContent = d.report_log_path || '-';
 
     const active = (d.active_cards||[]).map(x => {{
       if(x.text) return `<div class=\"item\"><div class=\"n\">J${{x.slot}} · ${{esc(x.text||'')}}</div></div>`;
@@ -1571,6 +1861,7 @@ async function loadDash(){{
       `<div class=\"spark-bar\"><i style=\"width:${{Math.round((100*(h.total_output_bytes||0))/maxOut)}}%\"></i></div>` +
       `<div class=\"m\">${{fmtGiB(h.total_output_bytes)}} GiB</div></div>`
     ).join('') || '<div class=\"m\">No history.</div>';
+    document.getElementById('log-tail').textContent = (d.log_tail || []).join('\\n') || 'No live log lines yet.';
   }}catch(e){{
     document.getElementById('p-status').textContent = 'status: error';
   }}

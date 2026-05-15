@@ -46,10 +46,11 @@ COPY docker/entrypoint.sh /usr/local/bin/mediashrinker-entrypoint
 COPY docker/hwcheck.sh    /usr/local/bin/mediashrinker-hwcheck
 
 RUN chmod +x /usr/local/bin/mediashrinker-entrypoint /usr/local/bin/mediashrinker-hwcheck \
-    && groupadd -g "${PGID}" appuser \
-    && useradd  -u "${PUID}" -g "${PGID}" -M -s /sbin/nologin appuser \
+    && GROUP_NAME="$(getent group "${PGID}" | cut -d: -f1 || true)" \
+    && if [ -z "${GROUP_NAME}" ]; then groupadd -g "${PGID}" appuser; GROUP_NAME=appuser; fi \
+    && useradd  -u "${PUID}" -g "${GROUP_NAME}" -M -s /sbin/nologin appuser \
     && mkdir -p /data/movies /data/tv /staging /reports \
-    && chown -R appuser:appuser /opt/mediashrinker /staging /reports
+    && chown -R "appuser:${GROUP_NAME}" /opt/mediashrinker /staging /reports
 
 USER appuser
 

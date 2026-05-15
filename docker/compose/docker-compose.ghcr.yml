@@ -1,0 +1,99 @@
+version: "3.9"
+
+x-common-env: &common-env
+  MEDIA_MOVIES_DIR: /data/movies
+  MEDIA_TV_DIR: /data/tv
+  MEDIA_STAGING_DIR: /staging
+  MEDIA_REPORT_DIR: /reports
+  MEDIA_HOST: "0.0.0.0"
+  MEDIA_PORT: "8787"
+  MEDIA_LIBRARY: "${MEDIA_LIBRARY:-both}"
+  MEDIA_JOBS: "${MEDIA_JOBS:-1}"
+  MEDIA_OCR_ENGINE: "${MEDIA_OCR_ENGINE:-pgsrip}"
+  MEDIA_OCR_LANGS: "${MEDIA_OCR_LANGS:-ita,eng}"
+  MEDIA_EXTRACT_PGS: "${MEDIA_EXTRACT_PGS:-1}"
+  MEDIA_ADD_EXTERNAL_TEXT_SUBS: "${MEDIA_ADD_EXTERNAL_TEXT_SUBS:-1}"
+  MEDIA_DELETE_BAK: "${MEDIA_DELETE_BAK:-0}"
+  MEDIA_BITRATE_THRESHOLD_MBPS: "${MEDIA_BITRATE_THRESHOLD_MBPS:-55.0}"
+  MEDIA_BITRATE_4K_MBPS: "${MEDIA_BITRATE_4K_MBPS:-45.0}"
+  MEDIA_NO_MULTIPASS: "${MEDIA_NO_MULTIPASS:-0}"
+  MEDIA_ENCODING_PROFILE: "${MEDIA_ENCODING_PROFILE:-balanced}"
+  MEDIA_NOTIFY_URL: "${MEDIA_NOTIFY_URL:-}"
+  MEDIA_WATCH_INTERVAL: "${MEDIA_WATCH_INTERVAL:-3600}"
+  MEDIA_PGSRIP_BIN: "${MEDIA_PGSRIP_BIN:-pgsrip}"
+  MEDIA_TESSDATA_PREFIX: "/usr/share/tesseract-ocr/5/tessdata"
+
+x-common-volumes: &common-volumes
+  - "${MOVIES_ROOT}:/data/movies"
+  - "${TV_ROOT}:/data/tv"
+  - "${STAGING_ROOT}:/staging"
+  - "${REPORT_ROOT}:/reports"
+
+services:
+  mediashrinker:
+    image: ${IMAGE_NAME:?Set IMAGE_NAME in .env}
+    container_name: mediashrinker
+    restart: unless-stopped
+    ports:
+      - "${MEDIA_PORT:-8787}:8787"
+    environment:
+      <<: *common-env
+      MEDIA_ENCODER: "${MEDIA_ENCODER:-auto}"
+    volumes: *common-volumes
+
+  mediashrinker-nvidia:
+    profiles: ["nvidia"]
+    image: ${IMAGE_NAME:?Set IMAGE_NAME in .env}
+    container_name: mediashrinker-nvidia
+    restart: unless-stopped
+    ports:
+      - "${MEDIA_PORT:-8787}:8787"
+    environment:
+      <<: *common-env
+      MEDIA_ENCODER: hevc_nvenc
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, video]
+    volumes: *common-volumes
+
+  mediashrinker-vaapi:
+    profiles: ["vaapi"]
+    image: ${IMAGE_NAME:?Set IMAGE_NAME in .env}
+    container_name: mediashrinker-vaapi
+    restart: unless-stopped
+    ports:
+      - "${MEDIA_PORT:-8787}:8787"
+    environment:
+      <<: *common-env
+      MEDIA_ENCODER: hevc_vaapi
+    devices:
+      - /dev/dri:/dev/dri
+    volumes: *common-volumes
+
+  mediashrinker-watchd:
+    profiles: ["watchd"]
+    image: ${IMAGE_NAME:?Set IMAGE_NAME in .env}
+    container_name: mediashrinker-watchd
+    restart: unless-stopped
+    command: ["watchd"]
+    environment:
+      <<: *common-env
+      MEDIA_ENCODER: "${MEDIA_ENCODER:-auto}"
+    volumes: *common-volumes
+
+  mediashrinker-hwcheck:
+    profiles: ["hwcheck"]
+    image: ${IMAGE_NAME:?Set IMAGE_NAME in .env}
+    container_name: mediashrinker-hwcheck
+    command: ["hwcheck"]
+    environment:
+      <<: *common-env
+    devices:
+      - /dev/dri:/dev/dri
+    volumes: *common-volumes

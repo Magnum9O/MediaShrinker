@@ -1,0 +1,8 @@
+services:
+  mediashrinker-vaapi:
+    group_add:
+      - "937"
+
+  mediashrinker-hwcheck:
+    group_add:
+      - "937"

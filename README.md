@@ -67,6 +67,40 @@ This repository is **Docker-first and Docker-only**.
 - The supported way to run it is via `docker compose` under `docker/compose/`.
 - Running from a local Python virtualenv is intentionally not documented or supported.
 
+## Registry Deploy (GHCR)
+
+If you publish the image from your fork to GitHub Container Registry, you can deploy without a local repo checkout.
+
+Expected image name:
+
+```bash
+ghcr.io/magnum9o/mediashrinker:latest
+```
+
+Important:
+
+- GHCR image names should be treated as lowercase.
+- The publish workflow in `.github/workflows/publish-ghcr.yml` pushes `latest` on the default branch plus branch / tag / sha tags.
+- So the correct pull is:
+
+```bash
+docker pull ghcr.io/magnum9o/mediashrinker:latest
+```
+
+Quick flow:
+
+```bash
+# in your fork
+git push origin main
+
+# then on the target host
+cd docker/compose
+cp .env.ghcr.example .env
+$EDITOR .env   # set IMAGE_NAME and your bind mounts
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
 ---
 
 ## Hardware-Accelerated Encoding

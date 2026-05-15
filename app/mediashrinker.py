@@ -691,6 +691,21 @@ def scan_files(root: Path) -> List[Path]:
             out.append(p)
     return out
 
+
+def is_within_root(path: Path, roots: List[Path]) -> bool:
+    try:
+        resolved = path.resolve()
+    except Exception:
+        resolved = path
+    for root in roots:
+        try:
+            root_resolved = root.resolve()
+        except Exception:
+            root_resolved = root
+        if resolved == root_resolved or root_resolved in resolved.parents:
+            return True
+    return False
+
 # -----------------------
 # Language helpers
 # -----------------------
@@ -1872,6 +1887,8 @@ def main() -> int:
     ap.add_argument("--no-save-config", action="store_true", help="Non salvare ~/.mediashrinker.json")
     ap.add_argument("--resume-run-id", type=int, default=None, metavar="RUN_ID",
                     help="Riprendi un run interrotto: salta i file già transcodificati/subfixed nel run indicato.")
+    ap.add_argument("--target-path", default=None,
+                    help="Limita il job a un singolo file o a una singola cartella titolo.")
     args = ap.parse_args()
 
     ffprobe = which_or("ffprobe")
@@ -1982,6 +1999,15 @@ def main() -> int:
         roots.append(movies_root)
     if lib_choice in ("2", "3"):
         roots.append(series_root)
+    target_path: Optional[Path] = None
+    if args.target_path:
+        target_path = normalize_input_path(args.target_path)
+        if not target_path.exists():
+            print(f"[ERR] target path not found: {target_path}")
+            return 2
+        if not is_within_root(target_path, roots):
+            print(f"[ERR] target path is outside selected libraries: {target_path}")
+            return 2
 
     staging_dir.mkdir(parents=True, exist_ok=True)
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -2045,6 +2071,7 @@ def main() -> int:
             "run_mode": bool(run_mode),
             "delete_bak_at_end": bool(delete_bak_at_end),
             "cleanup_only": bool(cleanup_only),
+            "target_path": str(target_path) if target_path else "",
         }
 
     def persist_db(payload: Dict[str, Any]) -> None:
@@ -2229,8 +2256,12 @@ def main() -> int:
 
     # Scan files
     all_files: List[Path] = []
-    for r in roots:
-        all_files.extend(scan_files(r))
+    if target_path is not None:
+        all_files.extend(scan_files(target_path))
+        log(f"target_path={target_path}")
+    else:
+        for r in roots:
+            all_files.extend(scan_files(r))
     log(f"Found {len(all_files)} video files.")
 
     # Resume: skip paths already successfully processed in a previous (aborted) run
