@@ -1,117 +1,184 @@
 # MediaShrinker
 
-## Crediti
+## Crediti (PRIMA COSA)
 
-Questo repository e' un fork.
+Questo repository è un refork del progetto originale di lmerega. Tutto il merito dell'idea e del lavoro iniziale va a lui:
 
-- progetto originale: `lmerega/MediaShrinker`
-- autore del progetto originale: `lmerega`
+- Progetto originale: [lmerega/MediaShrinker](https://github.com/lmerega/MediaShrinker)
+- Autore originale: `lmerega`
 
-Questo fork aggiunge adattamenti operativi, UI e deploy, ma il progetto di base e l'idea originale restano del repository upstream.
+Questo fork aggiunge adattamenti operativi, UI e deploy; il progetto di base e l'idea originale restano del repository upstream.
+MediaShrinker è una pipeline per librerie video che riduce l'uso di spazio su disco mantenendo i file riproducibili in librerie Plex/Jellyfin/Emby.
 
-MediaShrinker is a video-library pipeline that reduces disk usage while keeping media playable in Plex/Jellyfin/Emby libraries.
+Scansiona le cartelle di Film e Serie TV, decide quali file necessitano di intervento, copia solo i file necessari in un'area di staging locale, converte video non-HEVC in HEVC, preserva tutte le tracce dei sottotitoli, opzionalmente esegue OCR su sottotitoli immagine/PGS per ottenere testo, scrive report JSON/log, conserva la cronologia delle esecuzioni in SQLite ed espone una web dashboard leggera — tutto all'interno di un singolo container Docker.
 
-It scans Movies and TV-Series folders, decides which files need work, copies only the required files to a local staging area, converts non-HEVC video to HEVC, preserves all subtitle tracks, optionally OCRs PGS/image subtitles into text, writes JSON/log reports, stores run history in SQLite, and exposes a lightweight web dashboard — all inside a single Docker image.
+## Cosa fa
 
-## What It Does
-
-- Converts non-HEVC video to HEVC with `ffmpeg`.
-- Auto-detects the best available encoder: NVIDIA GPU → Intel/AMD GPU → CPU software.
-- Four named encoding profiles: `space_saver`, `balanced` (default), `quality`, `hq`.
-- Keeps all existing subtitle tracks (PGS, VobSub, ASS, SRT …).
-- Adds external text subtitles found next to the source file.
-- OCRs PGS/image subtitles into searchable text tracks (via `pgsrip` + Tesseract).
-- Avoids replacing files when the output is larger than the source.
-- Writes live `run-*.json` reports and a SQLite run history under `/reports`.
-- Web UI: run history, per-file details, live monitor, dashboard, and job scheduler.
-- Push notifications via [ntfy](https://ntfy.sh) on job completion.
-- Periodic watch-daemon mode (runs every N seconds, no cron needed).
+- Converte video non-HEVC in HEVC usando `ffmpeg`.
+- Rileva automaticamente il miglior encoder disponibile: GPU NVIDIA → GPU Intel/AMD → CPU software.
+- Quattro profili di codifica nominati: `space_saver`, `balanced` (default), `quality`, `hq`.
+- Mantiene tutte le tracce di sottotitoli esistenti (PGS, VobSub, ASS, SRT …).
+- Aggiunge sottotitoli di testo esterni trovati accanto al file sorgente.
+- Esegue OCR su sottotitoli immagine/PGS per convertirli in tracce di testo ricercabili (tramite `pgsrip` + Tesseract).
+- Evita di sovrascrivere i file quando l'output è più grande della sorgente.
+- Scrive report live `run-*.json` e conserva la cronologia in un DB SQLite sotto `/reports`.
+- Web UI: cronologia delle esecuzioni, dettagli per file, monitor live, dashboard e scheduler di job.
+- Notifiche push via [ntfy](https://ntfy.sh) al termine dei job.
+- Modalità watch-daemon periodica (esegue ogni N secondi, senza cron).
 
 ---
 
-## Quick Start (CPU encoding, one command)
+## Avvio rapido (modalità raccomandata: immagine GHCR)
+
+La maniera più semplice è usare l'immagine pubblicata su GitHub Container Registry: `ghcr.io/magnum9o/mediashrinker:latest`.
+
+## Installazione via Docker Compose / Portainer
+
+Se preferisci gestire il deployment con `docker compose`, Portainer (Stacks) o strumenti simili, ecco come procedere.
+
+Opzione consigliata (GHCR image + Compose):
 
 ```bash
-# 1. Clone / copy the repo
-git clone https://github.com/lmerega/MediaShrinker.git
-cd MediaShrinker
-
-# 2. Configure
-cp docker/compose/.env.example docker/compose/.env
-$EDITOR docker/compose/.env      # set MOVIES_ROOT, TV_ROOT, STAGING_ROOT, REPORT_ROOT
-
-# 3. Launch
 cd docker/compose
-docker compose up -d
+cp .env.ghcr.example .env
+$EDITOR .env   # imposta MOVIES_ROOT, TV_ROOT, STAGING_ROOT, REPORT_ROOT
 
-# 4. Open the web UI
+# Scarica l'immagine e avvia il stack pensato per GHCR
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+Usa questa opzione quando vuoi un deployment ripetibile senza rebuild locali.
+
+Portainer (Stack) — istruzioni rapide:
+
+- Apri Portainer → Stacks → Add stack.
+- Dai un nome allo stack (es. `mediashrinker`).
+- Nel campo "Web editor" incolla il contenuto di `docker-compose.ghcr.yml` o usa "Git repository" e punta al tuo fork con il path `docker/compose/docker-compose.ghcr.yml`.
+- Aggiungi le variabili d'ambiente nel pannello "Env" oppure assicurati che il file `.env` sia incluso nel repository (o settale come file in Portainer se supportato).
+- Deploy/Update. Portainer scaricherà l'immagine GHCR e avvierà i container.
+
+Nota su immagini private: se l'immagine GHCR è privata, configura le credenziali nel registry settings di Portainer o sul daemon Docker (`docker login ghcr.io`).
+
+Esempio `docker-compose` per Portainer (incolla questo come Stack):
+
+```yaml
+version: '3.8'
+services:
+  mediashrinker:
+    image: ghcr.io/magnum9o/mediashrinker:latest
+    container_name: mediashrinker
+    env_file:
+      - .env
+    ports:
+      - "8787:8787"
+    volumes:
+      - ${MOVIES_ROOT}:/media/movies
+      - ${TV_ROOT}:/media/tv
+      - ${STAGING_ROOT}:/staging
+      - ${REPORT_ROOT}:/reports
+    restart: unless-stopped
+
+# Note: in Portainer puoi incollare il contenuto sopra in Stacks → Add stack → Web editor
+# oppure collegare il repository Git che contiene `docker/compose/docker-compose.ghcr.yml`.
+```
+
+
+```bash
+# Copia l'esempio di env e modifica i percorsi
+cd docker/compose
+cp .env.ghcr.example .env
+$EDITOR .env   # imposta IMAGE_NAME (opzionale), MOVIES_ROOT, TV_ROOT, STAGING_ROOT, REPORT_ROOT
+
+# Scarica l'immagine dal registry e avvia
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+
+# Apri la web UI
 open http://localhost:8787
 ```
 
-The web UI lets you run **PLAN** (dry run), **RUN** (transcode), or **cleanup** jobs with a single click.
+La web UI permette di eseguire con un click **PLAN** (simulazione), **RUN** (transcodifica) o job di **cleanup**.
 
-## PLAN vs RUN (why PLAN exists)
+### Opzione alternativa: build dal sorgente (solo se modifichi il codice)
 
-MediaShrinker is designed to operate safely on large libraries and network mounts. For that reason, **PLAN** is a first-class action, not a debug-only feature.
+Se vuoi modificare il codice o ricostruire l'immagine localmente, puoi ancora clonare il repository e buildare l'immagine:
 
-- **PLAN** (dry run)
-  - Scans and analyzes the library and produces a plan (what would be processed and why).
-  - Writes a live `run-*.json` report and persists the run in SQLite.
-  - Does not copy to staging, transcode, OCR, or replace files.
-  - Use it to validate: mounts/paths, permissions, tools, OCR config, and to preview the queue in the dashboard.
+```bash
+# Clona il fork (o il repository upstream se preferisci)
+git clone https://github.com/magnum9o/MediaShrinker.git
+cd MediaShrinker
 
-- **RUN** (execute)
-  - Executes the plan: copies only the needed files to staging, runs subtitle fixing/OCR if required, transcodes if required, then swaps the result back to the library.
-  - Also writes live `run-*.json` + SQLite history.
+# Costruisci e avvia (default: CPU build)
+cd docker/compose
+docker compose build
+docker compose up -d
+```
 
-Recommended workflow:
+Usa la modalità GHCR per deployment veloci e senza checkout locale.
 
-1. Run **PLAN** from `/ops`, then check `/dashboard` and the run detail page.
-2. If the queue and reasons look correct, run **RUN**.
+## PLAN vs RUN (perché esiste PLAN)
 
-## Supported Usage
+MediaShrinker è progettato per operare in sicurezza su librerie grandi e mount di rete. Per questo motivo **PLAN** è un'azione di prima classe, non una semplice funzionalità di debug.
 
-This repository is **Docker-first and Docker-only**.
+- **PLAN** (simulazione)
+  - Scansiona e analizza la libreria e produce un piano (cosa verrebbe processato e perché).
+  - Scrive un report live `run-*.json` e registra l'esecuzione in SQLite.
+  - Non copia in staging, non transcodifica, non esegue OCR né sostituisce file.
+  - Usalo per convalidare: mount/percorso, permessi, tool, configurazione OCR e per anteprima della coda nella dashboard.
 
-- The supported way to run it is via `docker compose` under `docker/compose/`.
-- Running from a local Python virtualenv is intentionally not documented or supported.
+- **RUN** (esecuzione)
+  - Esegue il piano: copia solo i file necessari in staging, esegue il fixing/OCR dei sottotitoli se richiesto, transcodifica se necessario, quindi sostituisce i file nella libreria.
+  - Scrive anch'esso report live `run-*.json` e aggiorna la cronologia in SQLite.
 
-## Registry Deploy (GHCR)
+Workflow consigliato:
 
-If you publish the image from your fork to GitHub Container Registry, you can deploy without a local repo checkout.
+1. Esegui **PLAN** da `/ops`, poi controlla `/dashboard` e la pagina di dettaglio dell'esecuzione.
+2. Se la coda e i motivi sono corretti, lancia **RUN**.
 
-Expected image name:
+## Uso supportato
+
+Questo repository è **Docker-first e Docker-only**.
+
+- Il modo supportato per eseguirlo è tramite `docker compose` sotto `docker/compose/`.
+- L'esecuzione da un virtualenv Python locale non è documentata né supportata intenzionalmente.
+
+## Distribuzione su registry (GHCR)
+
+Se pubblichi l'immagine dal tuo fork su GitHub Container Registry (GHCR), puoi distribuire senza avere il repository locale sulla macchina di destinazione.
+
+Nome immagine previsto:
 
 ```bash
 ghcr.io/magnum9o/mediashrinker:latest
 ```
 
-Important:
+Importante:
 
-- GHCR image names should be treated as lowercase.
-- The publish workflow in `.github/workflows/publish-ghcr.yml` pushes `latest` on the default branch plus branch / tag / sha tags.
-- So the correct pull is:
+- I nomi delle immagini GHCR devono essere trattati in minuscolo.
+- Il workflow di pubblicazione in `.github/workflows/publish-ghcr.yml` pubblica il tag `latest` sul branch di default e aggiunge tag per branch/tag/sha.
+- Quindi il pull corretto è:
 
 ```bash
 docker pull ghcr.io/magnum9o/mediashrinker:latest
 ```
 
-Quick flow:
+Flusso rapido:
 
 ```bash
-# in your fork
+# nel tuo fork
 git push origin main
 
-# then on the target host
+# poi sull'host di destinazione
 cd docker/compose
 cp .env.ghcr.example .env
-$EDITOR .env   # set IMAGE_NAME and your bind mounts
+$EDITOR .env   # imposta IMAGE_NAME e i bind mount
 docker compose -f docker-compose.ghcr.yml pull
 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
-In pratica non devi decidere manualmente tutte le variabili.
-Di solito bastano:
+In pratica non è necessario impostare manualmente tutte le variabili.
+Di solito servono:
 
 - `IMAGE_NAME`
 - `MOVIES_ROOT`
@@ -119,74 +186,74 @@ Di solito bastano:
 - `STAGING_ROOT`
 - `REPORT_ROOT`
 
-Il resto dovrebbe rimanere sui default del template, salvo esigenze specifiche.
+Il resto può rimanere sui valori di default del template, salvo esigenze specifiche.
 
 ---
 
-## Hardware-Accelerated Encoding
+## Codifica accelerata via hardware
 
-### NVIDIA GPU (hevc_nvenc)
+### GPU NVIDIA (hevc_nvenc)
 
-**Requirements:** [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) installed on the host.
+Requisiti: installare il [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) sull'host.
 
 ```bash
-# .env — force NVIDIA or leave MEDIA_ENCODER=auto (recommended)
+# .env — forzare NVIDIA o lasciare MEDIA_ENCODER=auto (consigliato)
 MEDIA_ENCODER=hevc_nvenc
 
-# Launch with the nvidia profile
+# Avvia con il profilo nvidia
 cd docker/compose
 docker compose --profile nvidia up -d mediashrinker-nvidia
 ```
 
-The `nvidia` profile passes `NVIDIA_VISIBLE_DEVICES=all` and sets the GPU resource reservation so Docker allocates the hardware encoder. The `hevc_nvenc` encoder uses VBR mode with configurable CQ per resolution tier.
+Il profilo `nvidia` imposta `NVIDIA_VISIBLE_DEVICES=all` e riserva le risorse GPU così Docker può allocare l'encoder hardware. L'encoder `hevc_nvenc` utilizza VBR con CQ configurabile per fascia di risoluzione.
 
-Verify that the GPU is visible inside the container:
+Verifica che la GPU sia visibile dentro il container:
 
 ```bash
 docker compose --profile hwcheck run --rm mediashrinker-hwcheck
 ```
 
-### Intel / AMD GPU (hevc_vaapi)
+### GPU Intel / AMD (hevc_vaapi)
 
-**Requirements:** `/dev/dri/renderD128` must exist on the host (i915, amdgpu, or xe driver loaded).
+Requisiti: `/dev/dri/renderD128` deve esistere sull'host (driver i915, amdgpu o xe caricati).
 
 ```bash
-# .env — force VAAPI or leave MEDIA_ENCODER=auto (recommended)
+# .env — forzare VAAPI o lasciare MEDIA_ENCODER=auto (consigliato)
 MEDIA_ENCODER=hevc_vaapi
 
-# Launch with the vaapi profile
+# Avvia con il profilo vaapi
 cd docker/compose
 docker compose --profile vaapi up -d mediashrinker-vaapi
 ```
 
-The `vaapi` profile bind-mounts `/dev/dri` into the container. The pipeline uses software decode → `hwupload` → `hevc_vaapi` encode (NV12, 8-bit). Note: VAAPI does not support 10-bit HEVC output in most driver stacks, so the output is always 8-bit.
+Il profilo `vaapi` bind-monta `/dev/dri` nel container. La pipeline usa decode software → `hwupload` → encode `hevc_vaapi` (NV12, 8-bit). Nota: VAAPI in molti stack driver non supporta HEVC 10-bit in output, quindi l'output è sempre 8-bit.
 
 ### CPU (libx265)
 
-No special hardware needed. This is the default when no GPU is detected.
+Nessun hardware speciale richiesto. Questo è il comportamento di default quando non viene rilevata una GPU.
 
 ```bash
-MEDIA_ENCODER=libx265   # or leave MEDIA_ENCODER=auto
+MEDIA_ENCODER=libx265   # o lasciare MEDIA_ENCODER=auto
 cd docker/compose
 docker compose up -d
 ```
 
-### Auto-detection (recommended)
+### Rilevamento automatico (consigliato)
 
-Leave `MEDIA_ENCODER=auto` (the default). On startup the container probes the available encoders in order: NVENC → VAAPI → libx265. The first one that is both compiled into ffmpeg **and** has the required device node is chosen.
+Lascia `MEDIA_ENCODER=auto` (default). All'avvio il container prova gli encoder disponibili in ordine: NVENC → VAAPI → libx265. Il primo che è sia compilato in ffmpeg **che** ha il device node richiesto viene scelto.
 
 ---
 
-## Configuration Reference
+## Riferimento di configurazione
 
-Copy `docker/compose/.env.example` to `docker/compose/.env` and edit as needed.
+Copia `docker/compose/.env.example` in `docker/compose/.env` e modifica secondo necessità.
 
-### Glossary
+### Glossario
 
-- **PGS (HDMV PGS)**: BluRay subtitle format made of images (not searchable text).
-- **VobSub**: DVD subtitle format made of images.
-- **OCR**: converts image subtitles (PGS/VobSub) into text subtitles (typically `.srt`) using `pgsrip` + Tesseract.
-- **Staging**: fast local workspace where files are copied before processing; originals are only replaced at the end.
+- **PGS (HDMV PGS)**: formato sottotitoli BluRay composto da immagini (non testo ricercabile).
+- **VobSub**: formato sottotitoli DVD composto da immagini.
+- **OCR**: converte sottotitoli immagine (PGS/VobSub) in sottotitoli di testo (tipicamente `.srt`) usando `pgsrip` + Tesseract.
+- **Staging**: workspace locale veloce dove i file vengono copiati prima della lavorazione; gli originali vengono sostituiti solo al termine.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -213,7 +280,7 @@ Copy `docker/compose/.env.example` to `docker/compose/.env` and edit as needed.
 | `PGID` | `1000` | GID for the in-container process |
 | `TESSDATA_LANGS` | `eng ita` | Space-separated list of Tesseract language packs (apt) to install at build time. |
 
-### Encoding Profiles
+### Profili di codifica
 
 | Profile | Goal | CQ range | Preset |
 |---|---|---|---|
@@ -222,11 +289,11 @@ Copy `docker/compose/.env.example` to `docker/compose/.env` and edit as needed.
 | `quality` | High quality | 18–24 | nvenc p4 / x265 fast |
 | `hq` | Maximum quality | 16–22 | nvenc p3 / x265 veryfast |
 
-CQ targets vary by resolution tier (4K / 1080p / 720p / SD) and content type (movie / series). All values are adjustable in `app/mediashrinker_core/policy.py`.
+I target CQ variano per fascia di risoluzione (4K / 1080p / 720p / SD) e tipo di contenuto (film / serie). Tutti i valori sono modificabili in `app/mediashrinker_core/policy.py`.
 
 ---
 
-## Docker Compose Profiles
+## Profili Docker Compose
 
 | Profile | Command | Use case |
 |---|---|---|
@@ -240,7 +307,7 @@ CQ targets vary by resolution tier (4K / 1080p / 720p / SD) and content type (mo
 
 ## Web UI
 
-The web UI is available at `http://<host>:<MEDIA_PORT>` (default port 8787).
+La web UI è disponibile su `http://<host>:<MEDIA_PORT>` (porta predefinita 8787).
 
 | Page | URL | Description |
 |---|---|---|
@@ -254,24 +321,24 @@ The web UI is available at `http://<host>:<MEDIA_PORT>` (default port 8787).
 
 ---
 
-## Watch Daemon (periodic)
+## Watch Daemon (periodico)
 
-The `watchd` profile runs PLAN+RUN in a loop, sleeping `MEDIA_WATCH_INTERVAL` seconds between iterations. This is useful if you prefer a simple always-on daemon over a cron/scheduler.
+Il profilo `watchd` esegue PLAN+RUN in loop, dormendo `MEDIA_WATCH_INTERVAL` secondi tra un'iterazione e l'altra. Utile se preferisci un semplice daemon sempre attivo invece di cron/scheduler.
 
 ```bash
-# Run every 4 hours
+# Esegui ogni 4 ore
 MEDIA_WATCH_INTERVAL=14400
 docker compose --profile watchd up -d mediashrinker-watchd
 ```
 
 ---
 
-## Push Notifications (ntfy)
+## Notifiche Push (ntfy)
 
-Set `MEDIA_NOTIFY_URL` to any ntfy-compatible endpoint. A notification is sent at the end of each RUN with the number of processed/transcoded files and the total size delta.
+Imposta `MEDIA_NOTIFY_URL` con un endpoint compatibile ntfy. Una notifica viene inviata al termine di ogni RUN con il numero di file processati/transcodificati e il delta totale di dimensione.
 
 ```env
-# Public ntfy server — use a hard-to-guess topic name
+# Server ntfy pubblico — usare un topic difficile da indovinare
 MEDIA_NOTIFY_URL=https://ntfy.sh/my-secret-mediashrinker-topic
 
 # Self-hosted
@@ -280,9 +347,9 @@ MEDIA_NOTIFY_URL=http://ntfy.lan/mediashrinker
 
 ---
 
-## Multi-Language OCR
+## OCR multilingua
 
-Tesseract language packs are installed **at build time** via the `TESSDATA_LANGS` build argument. Add all the languages you need before building:
+I pacchetti lingua di Tesseract vengono installati **in fase di build** tramite l'argomento `TESSDATA_LANGS`. Aggiungi tutte le lingue necessarie prima di buildare:
 
 ```env
 # .env
@@ -290,9 +357,9 @@ TESSDATA_LANGS=eng ita fra deu spa
 MEDIA_OCR_LANGS=ita,eng,fra
 ```
 
-Supported language codes follow the `tesseract-ocr-XXX` apt package naming. Common ones: `eng`, `ita`, `fra`, `deu`, `spa`, `por`, `nld`, `pol`, `rus`, `jpn`, `chi-sim`.
+I codici lingua supportati seguono il naming dei pacchetti apt `tesseract-ocr-XXX`. Alcuni comuni: `eng`, `ita`, `fra`, `deu`, `spa`, `por`, `nld`, `pol`, `rus`, `jpn`, `chi-sim`.
 
-After changing `TESSDATA_LANGS` you must rebuild the image:
+Dopo aver modificato `TESSDATA_LANGS` è necessario ricostruire l'immagine:
 
 ```bash
 docker compose build --no-cache
@@ -301,29 +368,29 @@ docker compose up -d
 
 ---
 
-## Building the Image
+## Build dell'immagine
 
 ```bash
 # Default (CPU only, eng+ita tessdata)
 docker compose build
 
-# With French tessdata
+# Con tessdata francese
 docker compose build --build-arg TESSDATA_LANGS="eng ita fra"
 
-# Force rebuild from scratch
+# Forza rebuild da zero
 docker compose build --no-cache
 ```
 
 ---
 
-## File Backup and Safety
+## Backup file e sicurezza
 
-- Every processed file is copied to staging first; the original is never touched until the output is verified.
-- On success the output replaces the source and a `.bak` is kept alongside it.
-- Set `MEDIA_DELETE_BAK=1` (or tick the checkbox in the web UI) to delete `.bak` files automatically.
-- If the output is larger than the source (growth guard: >5%), the original is restored and the file is marked `skipped`.
+- Ogni file processato viene prima copiato in staging; l'originale non viene toccato finché l'output non è verificato.
+- In caso di successo l'output sostituisce la sorgente e viene mantenuto un `.bak` a fianco.
+- Imposta `MEDIA_DELETE_BAK=1` (o seleziona l'opzione nella web UI) per eliminare automaticamente i `.bak`.
+- Se l'output è più grande della sorgente (growth guard: >5%), l'originale viene ripristinato e il file viene marcato come `skipped`.
 
 ---
 
-## Non-Docker Usage
-Not supported. Use Docker.
+## Uso senza Docker
+Non supportato. Usa Docker.
