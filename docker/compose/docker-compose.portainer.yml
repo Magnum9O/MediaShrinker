@@ -5,28 +5,6 @@ services:
     restart: unless-stopped
     ports:
       - "8787:8787"
-    environment:
-      MEDIA_MOVIES_DIR: /data/movies
-      MEDIA_TV_DIR: /data/tv
-      MEDIA_STAGING_DIR: /staging
-      MEDIA_REPORT_DIR: /reports
-      MEDIA_HOST: "0.0.0.0"
-      MEDIA_PORT: "8787"
-      MEDIA_LIBRARY: "both"
-      MEDIA_JOBS: "1"
-      MEDIA_OCR_ENGINE: "pgsrip"
-      MEDIA_OCR_LANGS: "ita,eng"
-      MEDIA_EXTRACT_PGS: "1"
-      MEDIA_ADD_EXTERNAL_TEXT_SUBS: "1"
-      MEDIA_DELETE_BAK: "0"
-      MEDIA_BITRATE_THRESHOLD_MBPS: "55.0"
-      MEDIA_BITRATE_4K_MBPS: "45.0"
-      MEDIA_NO_MULTIPASS: "0"
-      MEDIA_ENCODING_PROFILE: "balanced"
-      MEDIA_NOTIFY_URL: ""
-      MEDIA_PGSRIP_BIN: "pgsrip"
-      MEDIA_TESSDATA_PREFIX: "/usr/share/tesseract-ocr/5/tessdata"
-      MEDIA_FORCE_EXTRACT_SUBS: "0"
     volumes:
       - /volume1/Media/Movies:/data/movies
       - /volume1/Media/TV:/data/tv

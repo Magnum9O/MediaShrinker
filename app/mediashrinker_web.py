@@ -260,6 +260,7 @@ BASE_CSS = r"""
   }
   h2{ margin:0 0 8px; font-size:16px; letter-spacing:.2px; }
   .muted{ color:var(--muted); }
+  label{ display:block; font-size:12px; margin-bottom:5px; color:var(--muted); font-weight:600; }
   .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   .grid{ display:grid; gap:10px; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); }
   table{ width:100%; border-collapse:collapse; font-size:13px; }
@@ -944,19 +945,6 @@ class App:
         </div>
       </div>
 
-      <div id="single-target-wrap" class="card" style="margin:0 0 12px 0;padding:12px;background:var(--paper2);display:none">
-        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-          <div>
-            <div style="font-weight:700">Selezione singolo titolo</div>
-            <div class="muted" style="font-size:12px">Scegli una cartella film, una cartella serie, oppure un file video diretto in root libreria.</div>
-          </div>
-          {current_target_html}
-        </div>
-        <select name="target_path" id="target-path">
-          {target_options_html}
-        </select>
-      </div>
-
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">
         <div>
           <label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Library</label>
@@ -994,9 +982,22 @@ class App:
             <option value="none"{selected(cfg['ocr_engine'], 'none')}>none</option>
           </select>
         </div>
-      </div>
+            </div>
 
-      <div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0">
+            <div id="single-target-wrap" class="card" style="margin:0 0 12px 0;padding:12px;background:var(--paper2);display:none">
+                <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+                    <div>
+                        <div style="font-weight:700">Selezione singolo titolo</div>
+                        <div class="muted" style="font-size:12px">Scegli prima la libreria (film/serie/both), poi scegli il titolo qui sotto.</div>
+                    </div>
+                    {current_target_html}
+                </div>
+                <select name="target_path" id="target-path">
+                    {target_options_html}
+                </select>
+            </div>
+
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0">
         <input type="hidden" name="extract_pgs" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="extract_pgs" value="1"{checked('extract_pgs')} style="width:auto"> estrai PGS / OCR</label>
         <input type="hidden" name="force_extract_subs" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="force_extract_subs" value="1"{checked('force_extract_subs')} style="width:auto"> Forza estrazione/OCR sottotitoli (anche su file già HEVC)</label>
         <input type="hidden" name="delete_bak" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="delete_bak" value="1"{checked('delete_bak')} style="width:auto"> elimina .bak dopo swap riuscito</label>

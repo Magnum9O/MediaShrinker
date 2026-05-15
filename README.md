@@ -62,35 +62,24 @@ Per Portainer puoi usare il file `docker/compose/docker-compose.portainer.yml` (
 
 Nota su immagini private: se l'immagine GHCR è privata, configura le credenziali nel registry settings di Portainer o sul daemon Docker (`docker login ghcr.io`).
 
-Esempio `docker-compose` per Portainer (incolla questo come Stack):
+Esempio `docker-compose` minimale per Portainer (incolla questo come Stack):
 
 ```yaml
 services:
   mediashrinker:
     image: ghcr.io/magnum9o/mediashrinker:latest
     container_name: mediashrinker
-    environment:
-      MEDIA_MOVIES_DIR: /data/movies
-      MEDIA_TV_DIR: /data/tv
-      MEDIA_STAGING_DIR: /staging
-      MEDIA_REPORT_DIR: /reports
-      MEDIA_OCR_ENGINE: "pgsrip"
-      MEDIA_OCR_LANGS: "ita,eng"
-      MEDIA_EXTRACT_PGS: "1"
-      MEDIA_ADD_EXTERNAL_TEXT_SUBS: "1"
-      MEDIA_FORCE_EXTRACT_SUBS: "0"
     ports:
       - "8787:8787"
     volumes:
-      - ${MOVIES_ROOT}:/media/movies
-      - ${TV_ROOT}:/media/tv
+      - ${MOVIES_ROOT}:/data/movies
+      - ${TV_ROOT}:/data/tv
       - ${STAGING_ROOT}:/staging
       - ${REPORT_ROOT}:/reports
     restart: unless-stopped
-
-# Note: in Portainer puoi incollare il contenuto sopra in Stacks → Add stack → Web editor
-# oppure collegare il repository Git che contiene `docker/compose/docker-compose.portainer.yml`.
 ```
+
+Nota: con questa versione minima non hai variabili `environment` nel file compose — imposta le opzioni (es. `MEDIA_EXTRACT_PGS`, `MEDIA_FORCE_EXTRACT_SUBS`, `MEDIA_OCR_ENGINE` ecc.) usando il pannello "Env" di Portainer quando crei/aggiorni lo stack, oppure lasciale come default e cambiale dall'interfaccia web sotto "Advanced settings" una volta avviato il container.
 
 
 ```bash
