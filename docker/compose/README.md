@@ -44,6 +44,9 @@ Edit `.env`:
 - `REPORT_ROOT`: host path where reports + `mediashrinker_runs.sqlite` live
 - `MEDIA_PORT`: host port to expose the web UI (default `8787`)
 
+In normal use, these 4 paths are the main values you should really need to change.
+Most other variables already have defaults and should not require manual tuning at first install.
+
 Runtime knobs:
 
 - `MEDIA_LIBRARY`: `movies` / `series` / `both`
@@ -78,6 +81,11 @@ Edit `.env`:
 
 - `IMAGE_NAME`: for example `ghcr.io/magnum9o/mediashrinker:latest`
 - the same bind mounts as the local-build flow
+
+Practical rule:
+
+- usually you only need to set `IMAGE_NAME` plus the 4 host paths
+- keep the rest at defaults unless you have a concrete reason to tune them
 
 Then launch:
 

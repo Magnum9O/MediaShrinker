@@ -101,6 +101,17 @@ docker compose -f docker-compose.ghcr.yml pull
 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
+In pratica non devi decidere manualmente tutte le variabili.
+Di solito bastano:
+
+- `IMAGE_NAME`
+- `MOVIES_ROOT`
+- `TV_ROOT`
+- `STAGING_ROOT`
+- `REPORT_ROOT`
+
+Il resto dovrebbe rimanere sui default del template, salvo esigenze specifiche.
+
 ---
 
 ## Hardware-Accelerated Encoding

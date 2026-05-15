@@ -159,9 +159,28 @@ BASE_CSS = r"""
   .brand{ display:flex; gap:12px; align-items:baseline; }
   .brand h1{ margin:0; font-size:22px; letter-spacing:.2px; }
   .brand .sub{ color:var(--muted); font-size:12px; }
-  .nav{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
-  .nav a{ color:#cfe6ff; font-size:13px; }
-  .nav a.mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .nav{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .nav .navbtn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:38px;
+    padding:9px 14px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.16);
+    background:rgba(255,255,255,.07);
+    color:#eaf1fb;
+    font-size:13px;
+    font-weight:700;
+    text-decoration:none;
+    transition:background .15s ease,border-color .15s ease,transform .15s ease;
+  }
+  .nav .navbtn:hover{
+    text-decoration:none;
+    background:rgba(255,255,255,.12);
+    border-color:rgba(255,255,255,.24);
+    transform:translateY(-1px);
+  }
   .card{
     background:var(--paper);
     border:1px solid var(--line);
@@ -231,19 +250,36 @@ BASE_CSS = r"""
     background: linear-gradient(90deg, #ff7b7b, #ffc36b);
     color: #1d0c0c;
   }
+  details.adv{
+    border:1px solid var(--line);
+    border-radius:14px;
+    background:rgba(255,255,255,.03);
+    padding:10px 12px;
+    margin-top:14px;
+  }
+  details.adv summary{
+    cursor:pointer;
+    font-weight:700;
+    color:var(--ink);
+    list-style:none;
+  }
+  details.adv summary::-webkit-details-marker{ display:none; }
+  .hint{
+    color:var(--muted);
+    font-size:12px;
+    line-height:1.45;
+  }
 """
 
 
 def nav_html() -> str:
     return (
         '<div class="nav">'
-        '<a href="/dashboard">dashboard</a>'
-        '<a href="/ops">control room</a>'
-        '<a href="/live">live</a>'
-        '<a href="/schedule">scheduler</a>'
-        '<a href="/">runs</a>'
-        '<a class="mono" href="/dashboard.json">dashboard.json</a>'
-        '<a class="mono" href="/ops.json">ops.json</a>'
+        '<a class="navbtn" href="/dashboard">Dashboard</a>'
+        '<a class="navbtn" href="/ops">Control Room</a>'
+        '<a class="navbtn" href="/live">Live</a>'
+        '<a class="navbtn" href="/schedule">Scheduler</a>'
+        '<a class="navbtn" href="/">Runs</a>'
         "</div>"
     )
 
@@ -782,9 +818,9 @@ class App:
 <div class="grid">
   <div class="card">
     <h2>Start job</h2>
-    <div class="muted" style="font-size:12px;margin-bottom:14px">
-      Use full-library mode for broad scans, or single-title mode to inspect or convert one movie / one series folder only.
-      Live status is written to <span class="mono">{h(cfg['report_dir'])}</span>.
+    <div class="hint" style="margin-bottom:14px">
+      Qui dovresti cambiare solo i parametri operativi.
+      I path e le opzioni tecniche restano sotto <span class="mono">Advanced settings</span>.
     </div>
 
     <form method="post" action="/ops/start">
@@ -792,21 +828,21 @@ class App:
         <div>
           <label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Run scope</label>
           <select name="run_scope" id="run-scope">
-            <option value="library"{selected(single_scope_default, 'library')}>Full library</option>
-            <option value="single"{selected(single_scope_default, 'single')}>Single title / folder</option>
+            <option value="library"{selected(single_scope_default, 'library')}>Libreria intera</option>
+            <option value="single"{selected(single_scope_default, 'single')}>Titolo / cartella singola</option>
           </select>
         </div>
         <div>
           <label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Title explorer</label>
-          <input id="target-filter" placeholder="Filter dropdown titles">
+          <input id="target-filter" placeholder="Filtra titoli nella tendina">
         </div>
       </div>
 
       <div id="single-target-wrap" class="card" style="margin:0 0 12px 0;padding:12px;background:var(--paper2);display:none">
         <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
           <div>
-            <div style="font-weight:700">Single title selection</div>
-            <div class="muted" style="font-size:12px">Pick one movie folder, one series folder, or a direct video file at library root.</div>
+            <div style="font-weight:700">Selezione singolo titolo</div>
+            <div class="muted" style="font-size:12px">Scegli una cartella film, una cartella serie, oppure un file video diretto in root libreria.</div>
           </div>
           {current_target_html}
         </div>
@@ -819,16 +855,12 @@ class App:
         <div>
           <label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Library</label>
           <select name="library" id="library-select">
-            <option value="both"{selected(cfg['library'], 'both')}>movies + series</option>
-            <option value="movies"{selected(cfg['library'], 'movies')}>movies</option>
-            <option value="series"{selected(cfg['library'], 'series')}>series</option>
+            <option value="both"{selected(cfg['library'], 'both')}>film + serie</option>
+            <option value="movies"{selected(cfg['library'], 'movies')}>film</option>
+            <option value="series"{selected(cfg['library'], 'series')}>serie</option>
           </select>
         </div>
         <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Parallel jobs</label><input name="jobs" value="{h(cfg['jobs'])}" inputmode="numeric"></div>
-        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Movies path</label><input name="movies_dir" value="{h(cfg['movies_dir'])}"></div>
-        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">TV path</label><input name="tv_dir" value="{h(cfg['tv_dir'])}"></div>
-        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Staging path</label><input name="staging_dir" value="{h(cfg['staging_dir'])}"></div>
-        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Reports path</label><input name="report_dir" value="{h(cfg['report_dir'])}"></div>
 
         <div>
           <label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Encoder</label>
@@ -856,20 +888,35 @@ class App:
             <option value="none"{selected(cfg['ocr_engine'], 'none')}>none</option>
           </select>
         </div>
-        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">OCR target langs</label><input name="ocr_langs" value="{h(cfg['ocr_langs'])}" placeholder="ita,eng"></div>
-        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Bitrate threshold (Mbps)</label><input name="bitrate_threshold_mbps" value="{h(cfg['bitrate_threshold_mbps'])}"></div>
-        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">4K threshold (Mbps)</label><input name="bitrate_4k_mbps" value="{h(cfg['bitrate_4k_mbps'])}"></div>
-        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">pgsrip binary</label><input name="pgsrip_bin" value="{h(cfg['pgsrip_bin'])}"></div>
-        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">TESSDATA_PREFIX</label><input name="tessdata_prefix" value="{h(cfg['tessdata_prefix'])}"></div>
-        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">ntfy URL (optional)</label><input name="notify_url" value="{h(cfg.get('notify_url',''))}" placeholder="https://ntfy.sh/your-topic"></div>
       </div>
 
       <div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0">
-        <input type="hidden" name="extract_pgs" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="extract_pgs" value="1"{checked('extract_pgs')} style="width:auto"> extract PGS / OCR</label>
-        <input type="hidden" name="add_external_text_subs" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="add_external_text_subs" value="1"{checked('add_external_text_subs')} style="width:auto"> mux external text subs (when processing)</label>
-        <input type="hidden" name="delete_bak" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="delete_bak" value="1"{checked('delete_bak')} style="width:auto"> delete .bak after each successful swap</label>
-        <input type="hidden" name="no_multipass" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="no_multipass" value="1"{checked('no_multipass')} style="width:auto"> disable multipass</label>
+        <input type="hidden" name="extract_pgs" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="extract_pgs" value="1"{checked('extract_pgs')} style="width:auto"> estrai PGS / OCR</label>
+        <input type="hidden" name="delete_bak" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="delete_bak" value="1"{checked('delete_bak')} style="width:auto"> elimina .bak dopo swap riuscito</label>
       </div>
+
+      <details class="adv">
+        <summary>Advanced settings</summary>
+        <div class="hint" style="margin:10px 0 12px 0">
+          Questi valori di solito non si toccano spesso. I path e i dettagli tecnici dovrebbero cambiare solo quando modifichi l’installazione o il comportamento avanzato.
+        </div>
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">
+          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Movies path</label><input name="movies_dir" value="{h(cfg['movies_dir'])}"></div>
+          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">TV path</label><input name="tv_dir" value="{h(cfg['tv_dir'])}"></div>
+          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Staging path</label><input name="staging_dir" value="{h(cfg['staging_dir'])}"></div>
+          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Reports path</label><input name="report_dir" value="{h(cfg['report_dir'])}"></div>
+          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">OCR target langs</label><input name="ocr_langs" value="{h(cfg['ocr_langs'])}" placeholder="ita,eng"></div>
+          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Bitrate threshold (Mbps)</label><input name="bitrate_threshold_mbps" value="{h(cfg['bitrate_threshold_mbps'])}"></div>
+          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">4K threshold (Mbps)</label><input name="bitrate_4k_mbps" value="{h(cfg['bitrate_4k_mbps'])}"></div>
+          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">pgsrip binary</label><input name="pgsrip_bin" value="{h(cfg['pgsrip_bin'])}"></div>
+          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">TESSDATA_PREFIX</label><input name="tessdata_prefix" value="{h(cfg['tessdata_prefix'])}"></div>
+          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">ntfy URL (optional)</label><input name="notify_url" value="{h(cfg.get('notify_url',''))}" placeholder="https://ntfy.sh/your-topic"></div>
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 0 0">
+          <input type="hidden" name="add_external_text_subs" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="add_external_text_subs" value="1"{checked('add_external_text_subs')} style="width:auto"> mux sottotitoli testuali esterni</label>
+          <input type="hidden" name="no_multipass" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="no_multipass" value="1"{checked('no_multipass')} style="width:auto"> disabilita multipass</label>
+        </div>
+      </details>
 
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <button name="mode" value="plan" type="submit">PLAN (dry run)</button>
