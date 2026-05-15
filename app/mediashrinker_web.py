@@ -931,33 +931,40 @@ class App:
     </div>
 
     <form method="post" action="/ops/start">
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin-bottom:12px">
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:12px">
         <div>
-          <label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Run scope</label>
+          <label>Run scope</label>
           <select name="run_scope" id="run-scope">
             <option value="library"{selected(single_scope_default, 'library')}>Libreria intera</option>
             <option value="single"{selected(single_scope_default, 'single')}>Titolo / cartella singola</option>
           </select>
         </div>
         <div>
-          <label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Title explorer</label>
-          <input id="target-filter" placeholder="Filtra titoli nella tendina">
-        </div>
-      </div>
-
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">
-        <div>
-          <label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Library</label>
+          <label>Library</label>
           <select name="library" id="library-select">
             <option value="both"{selected(cfg['library'], 'both')}>film + serie</option>
             <option value="movies"{selected(cfg['library'], 'movies')}>film</option>
             <option value="series"{selected(cfg['library'], 'series')}>serie</option>
           </select>
         </div>
-        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Parallel jobs</label><input name="jobs" value="{h(cfg['jobs'])}" inputmode="numeric"></div>
+      </div>
 
+      <div id="single-target-wrap" class="card" style="margin:0 0 12px 0;padding:12px;background:var(--paper2);display:none">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+          <div style="font-size:13px;font-weight:600">Selezione singolo titolo</div>
+          {current_target_html}
+        </div>
+        <label>Filtra titoli</label>
+        <input id="target-filter" placeholder="Cerca titolo..." style="margin-bottom:8px">
+        <select name="target_path" id="target-path">
+          {target_options_html}
+        </select>
+      </div>
+
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
+        <div><label>Parallel jobs</label><input name="jobs" value="{h(cfg['jobs'])}" inputmode="numeric"></div>
         <div>
-          <label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Encoder</label>
+          <label>Encoder</label>
           <select name="encoder">
             <option value="auto"{selected(cfg['encoder'], 'auto')}>auto (effective: {h(effective_encoder)})</option>
             <option value="hevc_nvenc"{selected(cfg['encoder'], 'hevc_nvenc')}>hevc_nvenc (NVIDIA)</option>
@@ -966,7 +973,7 @@ class App:
           </select>
         </div>
         <div>
-          <label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Encoding profile</label>
+          <label>Encoding profile</label>
           <select name="encoding_profile">
             <option value="space_saver"{selected(cfg.get('encoding_profile','balanced'), 'space_saver')}>space_saver</option>
             <option value="balanced"{selected(cfg.get('encoding_profile','balanced'), 'balanced')}>balanced</option>
@@ -974,33 +981,19 @@ class App:
             <option value="hq"{selected(cfg.get('encoding_profile','balanced'), 'hq')}>hq</option>
           </select>
         </div>
-
         <div>
-          <label class="muted" style="font-size:12px;display:block;margin-bottom:5px">OCR engine</label>
+          <label>OCR engine</label>
           <select name="ocr_engine">
             <option value="pgsrip"{selected(cfg['ocr_engine'], 'pgsrip')}>pgsrip</option>
             <option value="none"{selected(cfg['ocr_engine'], 'none')}>none</option>
           </select>
         </div>
-            </div>
-
-            <div id="single-target-wrap" class="card" style="margin:0 0 12px 0;padding:12px;background:var(--paper2);display:none">
-                <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-                    <div>
-                        <div style="font-weight:700">Selezione singolo titolo</div>
-                        <div class="muted" style="font-size:12px">Scegli prima la libreria (film/serie/both), poi scegli il titolo qui sotto.</div>
-                    </div>
-                    {current_target_html}
-                </div>
-                <select name="target_path" id="target-path">
-                    {target_options_html}
-                </select>
-            </div>
+      </div>
 
             <div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0">
-        <input type="hidden" name="extract_pgs" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="extract_pgs" value="1"{checked('extract_pgs')} style="width:auto"> estrai PGS / OCR</label>
-        <input type="hidden" name="force_extract_subs" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="force_extract_subs" value="1"{checked('force_extract_subs')} style="width:auto"> Forza estrazione/OCR sottotitoli (anche su file già HEVC)</label>
-        <input type="hidden" name="delete_bak" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="delete_bak" value="1"{checked('delete_bak')} style="width:auto"> elimina .bak dopo swap riuscito</label>
+        <input type="hidden" name="extract_pgs" value="0"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="extract_pgs" value="1"{checked('extract_pgs')} style="width:auto"> estrai PGS / OCR</label>
+        <input type="hidden" name="force_extract_subs" value="0"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="force_extract_subs" value="1"{checked('force_extract_subs')} style="width:auto"> Forza estrazione/OCR sottotitoli (anche su file già HEVC)</label>
+        <input type="hidden" name="delete_bak" value="0"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="delete_bak" value="1"{checked('delete_bak')} style="width:auto"> elimina .bak dopo swap riuscito</label>
       </div>
 
       <details class="adv">
@@ -1009,20 +1002,20 @@ class App:
           Questi valori di solito non si toccano spesso. I path e i dettagli tecnici dovrebbero cambiare solo quando modifichi l’installazione o il comportamento avanzato.
         </div>
         <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">
-          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Movies path</label><input name="movies_dir" value="{h(cfg['movies_dir'])}"></div>
-          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">TV path</label><input name="tv_dir" value="{h(cfg['tv_dir'])}"></div>
-          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Staging path</label><input name="staging_dir" value="{h(cfg['staging_dir'])}"></div>
-          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Reports path</label><input name="report_dir" value="{h(cfg['report_dir'])}"></div>
-          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">OCR target langs</label><input name="ocr_langs" value="{h(cfg['ocr_langs'])}" placeholder="ita,eng"></div>
-          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Bitrate threshold (Mbps)</label><input name="bitrate_threshold_mbps" value="{h(cfg['bitrate_threshold_mbps'])}"></div>
-          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">4K threshold (Mbps)</label><input name="bitrate_4k_mbps" value="{h(cfg['bitrate_4k_mbps'])}"></div>
-          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">pgsrip binary</label><input name="pgsrip_bin" value="{h(cfg['pgsrip_bin'])}"></div>
-          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">TESSDATA_PREFIX</label><input name="tessdata_prefix" value="{h(cfg['tessdata_prefix'])}"></div>
-          <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">ntfy URL (optional)</label><input name="notify_url" value="{h(cfg.get('notify_url',''))}" placeholder="https://ntfy.sh/your-topic"></div>
+          <div><label>Movies path</label><input name="movies_dir" value="{h(cfg['movies_dir'])}"></div>
+          <div><label>TV path</label><input name="tv_dir" value="{h(cfg['tv_dir'])}"></div>
+          <div><label>Staging path</label><input name="staging_dir" value="{h(cfg['staging_dir'])}"></div>
+          <div><label>Reports path</label><input name="report_dir" value="{h(cfg['report_dir'])}"></div>
+          <div><label>OCR target langs</label><input name="ocr_langs" value="{h(cfg['ocr_langs'])}" placeholder="ita,eng"></div>
+          <div><label>Bitrate threshold (Mbps)</label><input name="bitrate_threshold_mbps" value="{h(cfg['bitrate_threshold_mbps'])}"></div>
+          <div><label>4K threshold (Mbps)</label><input name="bitrate_4k_mbps" value="{h(cfg['bitrate_4k_mbps'])}"></div>
+          <div><label>pgsrip binary</label><input name="pgsrip_bin" value="{h(cfg['pgsrip_bin'])}"></div>
+          <div><label>TESSDATA_PREFIX</label><input name="tessdata_prefix" value="{h(cfg['tessdata_prefix'])}"></div>
+          <div><label>ntfy URL (optional)</label><input name="notify_url" value="{h(cfg.get('notify_url',''))}" placeholder="https://ntfy.sh/your-topic"></div>
         </div>
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 0 0">
-          <input type="hidden" name="add_external_text_subs" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="add_external_text_subs" value="1"{checked('add_external_text_subs')} style="width:auto"> mux sottotitoli testuali esterni</label>
-          <input type="hidden" name="no_multipass" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="no_multipass" value="1"{checked('no_multipass')} style="width:auto"> disabilita multipass</label>
+          <input type="hidden" name="add_external_text_subs" value="0"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="add_external_text_subs" value="1"{checked('add_external_text_subs')} style="width:auto"> mux sottotitoli testuali esterni</label>
+          <input type="hidden" name="no_multipass" value="0"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="no_multipass" value="1"{checked('no_multipass')} style="width:auto"> disabilita multipass</label>
         </div>
       </details>
 
@@ -2061,10 +2054,6 @@ class App:
       <h3>Queue preview</h3>
       <div id="queue-list" class="list"></div>
     </div>
-    <div class="panel">
-      <h3>Live log tail</h3>
-      <pre id="log-tail" class="log-pre">waiting for data...</pre>
-    </div>
   </div>
 </div>
 
@@ -2130,7 +2119,6 @@ async function loadDash(){{
       `<div class=\"spark-bar\"><i style=\"width:${{Math.round((100*(h.total_output_bytes||0))/maxOut)}}%\"></i></div>` +
       `<div class=\"m\">${{fmtGiB(h.total_output_bytes)}} GiB</div></div>`
     ).join('') || '<div class=\"m\">No history.</div>';
-    document.getElementById('log-tail').textContent = (d.log_tail || []).join('\\n') || 'No live log lines yet.';
   }}catch(e){{
     document.getElementById('p-status').textContent = 'status: error';
   }}
