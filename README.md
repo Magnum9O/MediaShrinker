@@ -1,5 +1,14 @@
 # MediaShrinker
 
+## Crediti
+
+Questo repository e' un fork.
+
+- progetto originale: `lmerega/MediaShrinker`
+- autore del progetto originale: `lmerega`
+
+Questo fork aggiunge adattamenti operativi, UI e deploy, ma il progetto di base e l'idea originale restano del repository upstream.
+
 MediaShrinker is a video-library pipeline that reduces disk usage while keeping media playable in Plex/Jellyfin/Emby libraries.
 
 It scans Movies and TV-Series folders, decides which files need work, copies only the required files to a local staging area, converts non-HEVC video to HEVC, preserves all subtitle tracks, optionally OCRs PGS/image subtitles into text, writes JSON/log reports, stores run history in SQLite, and exposes a lightweight web dashboard — all inside a single Docker image.

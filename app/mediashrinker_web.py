@@ -7,6 +7,7 @@ import argparse
 import html
 import json
 import os
+import re
 import signal
 import sqlite3
 import subprocess
@@ -122,30 +123,97 @@ def classify_chip(text: str) -> str:
     return "ok"
 
 
+def parse_clock_hhmm(value: str) -> tuple[int, int]:
+    m = re.fullmatch(r"\s*(\d{1,2}):(\d{2})\s*", value or "")
+    if not m:
+        raise ValueError("orario non valido, usa HH:MM")
+    hh = int(m.group(1))
+    mm = int(m.group(2))
+    if not (0 <= hh <= 23 and 0 <= mm <= 59):
+        raise ValueError("orario fuori range")
+    return hh, mm
+
+
+def human_schedule_to_cron(schedule_type: str, time_hhmm: str, weekday: str = "") -> tuple[str, str]:
+    hh, mm = parse_clock_hhmm(time_hhmm)
+    st = (schedule_type or "").strip().lower()
+    wd = (weekday or "1").strip()
+    weekday_map = {
+        "1": ("1", "lunedi"),
+        "2": ("2", "martedi"),
+        "3": ("3", "mercoledi"),
+        "4": ("4", "giovedi"),
+        "5": ("5", "venerdi"),
+        "6": ("6", "sabato"),
+        "0": ("0", "domenica"),
+        "7": ("0", "domenica"),
+    }
+    if st == "daily":
+        return f"{mm} {hh} * * *", f"Ogni giorno alle {hh:02d}:{mm:02d}"
+    if st == "weekly":
+        cron_day, day_label = weekday_map.get(wd, ("1", "lunedi"))
+        return f"{mm} {hh} * * {cron_day}", f"Ogni {day_label} alle {hh:02d}:{mm:02d}"
+    raise ValueError("tipo schedule non valido")
+
+
+def cron_expr_to_human(cron_expr: str) -> str:
+    expr = (cron_expr or "").strip()
+    m = re.fullmatch(r"(\d{1,2}) (\d{1,2}) \* \* \*", expr)
+    if m:
+        mm = int(m.group(1))
+        hh = int(m.group(2))
+        return f"Ogni giorno alle {hh:02d}:{mm:02d}"
+    m = re.fullmatch(r"(\d{1,2}) (\d{1,2}) \* \* ([0-7])", expr)
+    if m:
+        mm = int(m.group(1))
+        hh = int(m.group(2))
+        dd = m.group(3)
+        day_names = {
+            "0": "domenica",
+            "1": "lunedi",
+            "2": "martedi",
+            "3": "mercoledi",
+            "4": "giovedi",
+            "5": "venerdi",
+            "6": "sabato",
+            "7": "domenica",
+        }
+        return f"Ogni {day_names.get(dd, dd)} alle {hh:02d}:{mm:02d}"
+    return expr
+
+
+def schedule_label_from_row(row: Dict[str, Any]) -> str:
+    label = str(row.get("display_label") or "").strip()
+    if label:
+        return label
+    cron_expr = str(row.get("cron_expr") or "").strip()
+    return cron_expr_to_human(cron_expr) if cron_expr else "-"
+
+
 BASE_CSS = r"""
   :root{
-    --bg0:#0b1020;
-    --bg1:#0c1930;
-    --paper:rgba(255,255,255,.06);
-    --paper2:rgba(255,255,255,.035);
-    --ink:#eaf1fb;
-    --muted:#a7b6c8;
-    --line:rgba(255,255,255,.12);
-    --accent:#7cc9ff;
-    --accent2:#3ec9a7;
-    --ok:#7de2c9;
-    --warn:#ffd888;
-    --bad:#ff9a9a;
-    --shadow:0 1px 0 rgba(0,0,0,.25);
+    --bg0:#f4f8ff;
+    --bg1:#eef6ff;
+    --paper:rgba(255,255,255,.92);
+    --paper2:#f6f9fc;
+    --ink:#152033;
+    --muted:#67758a;
+    --line:rgba(21,32,51,.10);
+    --accent:#4b8dff;
+    --accent2:#2dc6b0;
+    --ok:#159b74;
+    --warn:#b96b10;
+    --bad:#c14a52;
+    --shadow:0 16px 36px rgba(44,74,122,.08);
   }
   *{ box-sizing:border-box; }
   body{
     margin:0;
     color:var(--ink);
-    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji";
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji";
     background:
-      radial-gradient(1200px 420px at 10% -10%, rgba(91,149,255,.24), transparent 60%),
-      radial-gradient(900px 320px at 100% -20%, rgba(62,201,167,.18), transparent 55%),
+      radial-gradient(1200px 420px at 10% -10%, rgba(75,141,255,.18), transparent 60%),
+      radial-gradient(900px 320px at 100% -20%, rgba(45,198,176,.16), transparent 55%),
       linear-gradient(150deg, var(--bg0), var(--bg1));
     min-height:100vh;
   }
@@ -167,9 +235,9 @@ BASE_CSS = r"""
     min-height:38px;
     padding:9px 14px;
     border-radius:999px;
-    border:1px solid rgba(255,255,255,.16);
-    background:rgba(255,255,255,.07);
-    color:#eaf1fb;
+    border:1px solid rgba(21,32,51,.10);
+    background:#ffffff;
+    color:#223146;
     font-size:13px;
     font-weight:700;
     text-decoration:none;
@@ -177,18 +245,18 @@ BASE_CSS = r"""
   }
   .nav .navbtn:hover{
     text-decoration:none;
-    background:rgba(255,255,255,.12);
-    border-color:rgba(255,255,255,.24);
+    background:#f1f6ff;
+    border-color:rgba(75,141,255,.24);
     transform:translateY(-1px);
   }
   .card{
     background:var(--paper);
     border:1px solid var(--line);
-    border-radius:14px;
+    border-radius:18px;
     box-shadow:var(--shadow);
-    padding:12px;
+    padding:14px;
     margin-bottom:12px;
-    backdrop-filter: blur(10px);
+    backdrop-filter: blur(8px);
   }
   h2{ margin:0 0 8px; font-size:16px; letter-spacing:.2px; }
   .muted{ color:var(--muted); }
@@ -203,18 +271,18 @@ BASE_CSS = r"""
     padding:2px 7px;
     border-radius:999px;
     border:1px solid var(--line);
-    background:rgba(255,255,255,.04);
+    background:#f4f8fc;
     color:var(--muted);
   }
-  .chip.ok{ border-color:rgba(62,201,167,.45); color:var(--ok); background:rgba(62,201,167,.14); }
-  .chip.warn{ border-color:rgba(244,195,91,.35); color:var(--warn); background:rgba(244,195,91,.12); }
-  .chip.bad{ border-color:rgba(255,111,111,.35); color:var(--bad); background:rgba(255,111,111,.12); }
+  .chip.ok{ border-color:rgba(21,155,116,.22); color:var(--ok); background:rgba(21,155,116,.08); }
+  .chip.warn{ border-color:rgba(185,107,16,.22); color:var(--warn); background:rgba(185,107,16,.08); }
+  .chip.bad{ border-color:rgba(193,74,82,.22); color:var(--bad); background:rgba(193,74,82,.08); }
   pre{
     margin:0;
     padding:10px;
     border-radius:10px;
     border:1px solid var(--line);
-    background: rgba(0,0,0,.22);
+    background: #f5f8fc;
     color: var(--ink);
     overflow:auto;
     font-size:12px;
@@ -225,13 +293,13 @@ BASE_CSS = r"""
   input,select,textarea{
     width:100%;
     border-radius:10px;
-    border:1px solid rgba(255,255,255,.18);
-    background: rgba(0,0,0,.22);
+    border:1px solid rgba(21,32,51,.12);
+    background: #fbfdff;
     color: var(--ink);
     padding: 9px 10px;
     outline: none;
   }
-  input::placeholder{ color: rgba(234,241,251,.55); }
+  input::placeholder{ color: rgba(21,32,51,.40); }
   button{
     border:0;
     border-radius:999px;
@@ -239,16 +307,16 @@ BASE_CSS = r"""
     font-weight:700;
     cursor:pointer;
     background: linear-gradient(90deg, var(--accent), var(--accent2));
-    color: #061018;
+    color: #ffffff;
   }
   button.secondary{
-    background: rgba(255,255,255,.12);
+    background: #f3f7fb;
     color: var(--ink);
-    border: 1px solid rgba(255,255,255,.18);
+    border: 1px solid rgba(21,32,51,.12);
   }
   button.danger{
-    background: linear-gradient(90deg, #ff7b7b, #ffc36b);
-    color: #1d0c0c;
+    background: linear-gradient(90deg, #ff7b7b, #ffb86b);
+    color: #ffffff;
   }
   details.adv{
     border:1px solid var(--line);
@@ -611,13 +679,30 @@ class App:
         except Exception:
             pass
 
-    def add_schedule(self, name: str, cron_expr: str, mode: str, library: str) -> Dict[str, Any]:
+    def add_schedule(
+        self,
+        name: str,
+        cron_expr: str,
+        mode: str,
+        library: str,
+        schedule_type: str = "",
+        time_hhmm: str = "",
+        weekday: str = "",
+    ) -> Dict[str, Any]:
         if not HAVE_APSCHEDULER:
             return {"ok": False, "error": "APScheduler not installed"}
+        display_label = ""
+        if schedule_type:
+            try:
+                cron_expr, display_label = human_schedule_to_cron(schedule_type, time_hhmm, weekday)
+            except Exception as e:
+                return {"ok": False, "error": f"Schedule non valida: {e}"}
         try:
             CronTrigger.from_crontab(cron_expr, timezone="UTC")  # type: ignore[name-defined]
         except Exception as e:
             return {"ok": False, "error": f"Espressione cron non valida: {e}"}
+        if not name.strip():
+            name = display_label or cron_expr
         now = datetime.now(timezone.utc).isoformat()
         with self.conn() as con:
             cur = con.execute(
@@ -662,11 +747,12 @@ class App:
         rows_html = ""
         for s in schedules:
             status = "enabled" if s.get("enabled") else "paused"
+            when_label = schedule_label_from_row(s)
             rows_html += (
                 f"<tr>"
                 f"<td>{s['id']}</td>"
                 f"<td>{h(s.get('name',''))}</td>"
-                f"<td class='mono'>{h(s.get('cron_expr',''))}</td>"
+                f"<td>{h(when_label)}</td>"
                 f"<td>{h(s.get('mode',''))}</td>"
                 f"<td>{h(s.get('library',''))}</td>"
                 f"<td>{h(status)}</td>"
@@ -693,31 +779,47 @@ class App:
   {nav_html()}
 </div>
 <div class="card">
-  <h2>Add schedule</h2>
+  <h2>Nuova automazione</h2>
   <form method="post" action="/schedule/add" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
-    <div><label style="font-size:12px;display:block" class="muted">Name</label><input name="name" placeholder="Nightly run" style="width:100%"></div>
-    <div><label style="font-size:12px;display:block" class="muted">Cron expression <small>(UTC)</small></label><input name="cron_expr" placeholder="0 3 * * *" required style="width:100%"></div>
-    <div><label style="font-size:12px;display:block" class="muted">Mode</label>
+    <div><label style="font-size:12px;display:block" class="muted">Nome</label><input name="name" placeholder="Plan giornaliero" style="width:100%"></div>
+    <div><label style="font-size:12px;display:block" class="muted">Frequenza</label>
+      <select name="schedule_type" style="width:100%;box-sizing:border-box">
+        <option value="daily">Giornaliero</option>
+        <option value="weekly">Settimanale</option>
+      </select></div>
+    <div><label style="font-size:12px;display:block" class="muted">Ora</label><input name="time_hhmm" value="03:00" placeholder="03:00" style="width:100%"></div>
+    <div><label style="font-size:12px;display:block" class="muted">Giorno settimana</label>
+      <select name="weekday" style="width:100%;box-sizing:border-box">
+        <option value="1">Lunedi</option>
+        <option value="2">Martedi</option>
+        <option value="3">Mercoledi</option>
+        <option value="4">Giovedi</option>
+        <option value="5">Venerdi</option>
+        <option value="6">Sabato</option>
+        <option value="0">Domenica</option>
+      </select></div>
+    <div><label style="font-size:12px;display:block" class="muted">Modalita</label>
       <select name="mode" style="width:100%;box-sizing:border-box">
         <option value="plan">plan</option>
         <option value="run">run</option>
         <option value="cleanup">cleanup</option>
       </select></div>
-    <div><label style="font-size:12px;display:block" class="muted">Library</label>
+    <div><label style="font-size:12px;display:block" class="muted">Libreria</label>
       <select name="library" style="width:100%;box-sizing:border-box">
-        <option value="both">both</option>
-        <option value="movies">movies</option>
-        <option value="series">series</option>
+        <option value="both">film + serie</option>
+        <option value="movies">film</option>
+        <option value="series">serie</option>
       </select></div>
-    <div style="align-self:end"><button type="submit" style="padding:9px 20px">Add</button></div>
+    <div style="align-self:end"><button type="submit" style="padding:9px 20px">Salva</button></div>
   </form>
-  <p class="muted" style="font-size:12px">Examples: <code>0 3 * * *</code> = daily 03:00 &nbsp;|&nbsp;
-     <code>0 2 * * 6</code> = Saturday 02:00 &nbsp;|&nbsp; <code>30 1 * * 1-5</code> = Mon-Fri 01:30</p>
+  <p class="muted" style="font-size:12px">
+    Internamente viene sempre usato APScheduler con cron, ma qui la configurazione resta leggibile e semplice.
+  </p>
 </div>
 <div class="card">
-  <h2>Schedules ({len(schedules)})</h2>
+  <h2>Automazioni ({len(schedules)})</h2>
   <table>
-    <thead><tr><th>#</th><th>Name</th><th>Cron (UTC)</th><th>Mode</th><th>Library</th><th>Status</th><th>Last run</th><th></th></tr></thead>
+    <thead><tr><th>#</th><th>Nome</th><th>Quando</th><th>Mode</th><th>Libreria</th><th>Stato</th><th>Ultima run</th><th></th></tr></thead>
     <tbody>{"".join([rows_html]) if schedules else "<tr><td colspan='8'>No schedules</td></tr>"}</tbody>
   </table>
 </div>
@@ -1483,21 +1585,23 @@ class App:
         results_paths = {str(r.get("path")) for r in results if r.get("path")}
         pending = [x for x in plan if str(x.get("path") or "") and str(x.get("path") or "") not in results_paths]
         target_path = str(cfg.get("target_path") or "").strip()
-
-        status_cards = [
-            ("Run", f"#{run_id or '-'}"),
-            ("Mode", str(mode)),
-            ("Status", str(status)),
-            ("Wall", hms(p.get("run_wall_sec"))),
-            ("Scanned", str(len(plan))),
-            ("Queued", str(totals.get("to_process_count", 0))),
-            ("Done", str(totals.get("results_done_count", 0))),
-            ("Delta", f"{gib(totals.get('processed_delta_bytes'))} GiB"),
-        ]
-        cards_html = "".join(
-            f"<div class='card' style='margin:0;padding:12px;background:var(--paper2)'><div class='muted' style='font-size:12px'>{h(label)}</div><div style='font-size:24px;font-weight:800'>{h(value)}</div></div>"
-            for label, value in status_cards
-        )
+        current_item = None
+        if jobs_live:
+            for j in jobs_live:
+                txt = str(j.get("text") or "").strip()
+                if txt and txt.lower() != "idle":
+                    current_item = txt
+                    break
+        if not current_item and pending:
+            current_item = Path(str(pending[0].get("path") or "")).name
+        report_json_path = str(live.get("report_json_path") or "")
+        report_json_link = "/report_json?path=" + quote(report_json_path, safe="") if report_json_path else ""
+        action_buttons = []
+        if run_id > 0:
+            action_buttons.append(f"<a class='navbtn' href='/run?id={run_id}'>Apri run #{run_id}</a>")
+        if report_json_link:
+            action_buttons.append(f"<a class='navbtn' href='{report_json_link}' target='_blank'>Apri report JSON</a>")
+        action_buttons_html = "".join(action_buttons)
         live_jobs_html = "".join(
             f"<div class='item'><div class='n'>J{int(j.get('slot') or 0)}</div><div class='m'>{h(j.get('text') or 'idle')}</div></div>"
             for j in jobs_live
@@ -1521,16 +1625,17 @@ class App:
             for x in results[-15:]
         ) or "<div class='item m'>No results yet.</div>"
         log_html = h("\n".join(log_tail)) if log_tail else "No live log lines yet."
-        chips = (
-            f"<span class='chip'>run_id: {run_id}</span>"
-            f"<span class='chip'>status: {h(status)}</span>"
-            f"<span class='chip'>mode: {h(mode)}</span>"
-            f"<span class='chip'>wall: {hms(p.get('run_wall_sec'))}</span>"
-            f"<span class='chip'>results done: {h(totals.get('results_done_count', 0))}</span>"
-            f"<span class='chip'>to_process: {h(totals.get('to_process_count', 0))}</span>"
-            f"<span class='chip'>input: {gib(totals.get('processed_input_bytes'))} GiB</span>"
-            f"<span class='chip'>output: {gib(totals.get('processed_output_bytes'))} GiB</span>"
-            f"<span class='chip'>delta: {gib(totals.get('processed_delta_bytes'))} GiB ({pct(totals.get('processed_delta_pct'))})</span>"
+        status_cards = [
+            ("Run", f"#{run_id or '-'}"),
+            ("Stato", str(status)),
+            ("Modalita", str(mode).upper()),
+            ("Tempo", hms(p.get("run_wall_sec"))),
+            ("In coda", str(totals.get("to_process_count", 0))),
+            ("Completati", str(totals.get("results_done_count", 0))),
+        ]
+        cards_html = "".join(
+            f"<div class='card' style='margin:0;padding:12px;background:var(--paper2)'><div class='muted' style='font-size:12px'>{h(label)}</div><div style='font-size:24px;font-weight:800'>{h(value)}</div></div>"
+            for label, value in status_cards
         )
         body = f"""
 <div class="topbar">
@@ -1540,41 +1645,152 @@ class App:
   </div>
   {nav_html()}
 </div>
-<div class="card"><div class="chips">{chips}</div></div>
-<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">{cards_html}</div>
-<div class="grid">
-  <div class="card">
-    <h2>Run scope</h2>
-    <pre>{h(json.dumps({
-        "library": cfg.get("library"),
-        "target_path": target_path or "(full library)",
-        "encoder": cfg.get("encoder"),
-        "jobs": cfg.get("jobs"),
-        "profile": cfg.get("encoding_profile"),
-    }, indent=2, ensure_ascii=False))}</pre>
+<style>
+.live-hero{{display:grid;grid-template-columns:1.15fr .85fr;gap:12px;margin-bottom:12px}}
+.live-main{{padding:18px;background:linear-gradient(135deg, rgba(75,141,255,.10), rgba(45,198,176,.10));}}
+.live-main h2{{margin:0 0 6px;font-size:26px}}
+.live-main .lead{{color:var(--muted);font-size:13px;line-height:1.5}}
+.live-actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}}
+.live-layout{{display:grid;grid-template-columns:.95fr 1.05fr;gap:12px}}
+.log-console{{height:420px;overflow:auto;white-space:pre-wrap;scroll-behavior:smooth}}
+.console-head{{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}}
+.console-actions{{display:flex;gap:8px;flex-wrap:wrap}}
+.console-btn{{border:1px solid rgba(21,32,51,.12);background:#fff;color:var(--ink);border-radius:999px;padding:8px 12px;font-weight:700;cursor:pointer}}
+.console-btn.active{{background:linear-gradient(90deg, var(--accent), var(--accent2));color:#fff;border-color:transparent}}
+.metric-strip{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}}
+@media (max-width: 980px){{.live-hero,.live-layout{{grid-template-columns:1fr}} .log-console{{height:320px}}}}
+</style>
+<div class="live-hero">
+  <div class="card live-main">
+    <h2>Console operativa</h2>
+    <div class="lead">
+      Stato live del job corrente. Qui devono emergere subito file attivo, coda, log e accesso al report.
+    </div>
+    <div class="chips" style="margin-top:12px">
+      <span class="chip {classify_chip(status)}">stato: {h(status)}</span>
+      <span class="chip">modalita: {h(mode)}</span>
+      <span class="chip">tempo: {hms(p.get('run_wall_sec'))}</span>
+      <span class="chip">target: {h(Path(target_path).name if target_path else 'libreria intera')}</span>
+    </div>
+    <div class="live-actions">{action_buttons_html}</div>
   </div>
-  <div class="card">
-    <h2>Config</h2>
-    <pre>{h(json.dumps(cfg, indent=2, ensure_ascii=False))}</pre>
-  </div>
-  <div class="card">
-    <h2>Totals</h2>
-    <pre>{h(json.dumps(totals, indent=2, ensure_ascii=False))}</pre>
-  </div>
+  <div class="metric-strip">{cards_html}</div>
 </div>
-<div class="grid" style="grid-template-columns:1fr 1fr;gap:12px">
-  <div class="card"><h2>Active workers</h2><div class="list">{live_jobs_html}</div></div>
-  <div class="card"><h2>Pending queue preview</h2><div class="list">{pending_html}</div></div>
-</div>
-<div class="grid" style="grid-template-columns:1fr 1fr;gap:12px">
-  <div class="card"><h2>Recent results</h2><div class="list">{recent_html}</div></div>
-  <div class="card"><h2>Live log tail</h2><div class="muted" style="font-size:12px;margin-bottom:8px">{h(live.get('report_log_path') or '')}</div><pre>{log_html}</pre></div>
+<div class="live-layout">
+  <div style="display:grid;gap:12px">
+    <div class="card">
+      <h2>Attivita corrente</h2>
+      <div class="hint" style="margin-bottom:10px">File o fase che richiede attenzione adesso.</div>
+      <div style="font-size:20px;font-weight:800;margin-bottom:10px">{h(current_item or 'In attesa di attivita dettagliata')}</div>
+      <div class="list">{live_jobs_html}</div>
+    </div>
+    <div class="card"><h2>Preview coda</h2><div class="list">{pending_html}</div></div>
+    <div class="card"><h2>Risultati recenti</h2><div class="list">{recent_html}</div></div>
+    <details class="adv">
+      <summary>Advanced</summary>
+      <div class="grid" style="margin-top:12px">
+        <div class="card" style="margin:0"><h2>Run scope</h2><pre>{h(json.dumps({
+            "library": cfg.get("library"),
+            "target_path": target_path or "(full library)",
+            "encoder": cfg.get("encoder"),
+            "jobs": cfg.get("jobs"),
+            "profile": cfg.get("encoding_profile"),
+        }, indent=2, ensure_ascii=False))}</pre></div>
+        <div class="card" style="margin:0"><h2>Config</h2><pre>{h(json.dumps(cfg, indent=2, ensure_ascii=False))}</pre></div>
+        <div class="card" style="margin:0"><h2>Totals</h2><pre>{h(json.dumps(totals, indent=2, ensure_ascii=False))}</pre></div>
+      </div>
+    </details>
+  </div>
+  <div class="card">
+    <div class="console-head">
+      <div>
+        <h2 style="margin-bottom:4px">Log live</h2>
+        <div class="muted" style="font-size:12px">{h(live.get('report_log_path') or '')}</div>
+      </div>
+      <div class="console-actions">
+        <button type="button" id="live-toggle" class="console-btn active">Live ON</button>
+        <button type="button" id="follow-toggle" class="console-btn active">Segui tail</button>
+        <button type="button" id="jump-bottom" class="console-btn">Vai in fondo</button>
+      </div>
+    </div>
+    <pre id="log-console" class="log-console">{log_html}</pre>
+  </div>
 </div>
 <script>
-setTimeout(function() {{ window.location.reload(); }}, 2000);
+(function(){{
+  const logEl = document.getElementById('log-console');
+  const liveBtn = document.getElementById('live-toggle');
+  const followBtn = document.getElementById('follow-toggle');
+  const jumpBtn = document.getElementById('jump-bottom');
+  let liveOn = sessionStorage.getItem('ms_live_on') !== '0';
+  let followTail = sessionStorage.getItem('ms_follow_tail') !== '0';
+  function syncBtns(){{
+    liveBtn.textContent = liveOn ? 'Live ON' : 'Live OFF';
+    followBtn.textContent = followTail ? 'Segui tail' : 'Segui tail OFF';
+    liveBtn.classList.toggle('active', liveOn);
+    followBtn.classList.toggle('active', followTail);
+    sessionStorage.setItem('ms_live_on', liveOn ? '1' : '0');
+    sessionStorage.setItem('ms_follow_tail', followTail ? '1' : '0');
+  }}
+  function jumpBottom(){{
+    logEl.scrollTop = logEl.scrollHeight;
+  }}
+  liveBtn.addEventListener('click', function(){{
+    liveOn = !liveOn;
+    syncBtns();
+  }});
+  followBtn.addEventListener('click', function(){{
+    followTail = !followTail;
+    syncBtns();
+  }});
+  jumpBtn.addEventListener('click', jumpBottom);
+  if(followTail) jumpBottom();
+  syncBtns();
+  setInterval(function(){{
+    if(!liveOn) return;
+    sessionStorage.setItem('ms_log_scroll', String(logEl.scrollTop || 0));
+    window.location.reload();
+  }}, 2000);
+  const savedScroll = parseInt(sessionStorage.getItem('ms_log_scroll') || '0', 10);
+  if(!Number.isNaN(savedScroll) && !followTail) logEl.scrollTop = savedScroll;
+  if(followTail) jumpBottom();
+}})();
 </script>
 """
         return page("MediaShrinker Live", body)
+
+    def report_json_page(self, path_s: str) -> str:
+        if not path_s:
+            return page("Report JSON", "<div class='card'><h2>Report path mancante</h2></div>")
+        report_path = Path(path_s)
+        try:
+            report_path = report_path.resolve()
+            reports_root = self.db_path.parent.resolve()
+        except Exception:
+            return page("Report JSON", "<div class='card'><h2>Percorso report non valido</h2></div>")
+        if reports_root not in report_path.parents and report_path != reports_root:
+            return page("Report JSON", "<div class='card'><h2>Percorso report fuori dalla cartella reports</h2></div>")
+        if not report_path.exists():
+            return page("Report JSON", "<div class='card'><h2>Report non trovato</h2></div>")
+        try:
+            raw = report_path.read_text(encoding="utf-8")
+        except Exception as e:
+            return page("Report JSON", f"<div class='card'><h2>Impossibile leggere il report</h2><pre>{h(e)}</pre></div>")
+        body = f"""
+<div class="topbar">
+  <div class="brand">
+    <h1>{APP_NAME}</h1>
+    <div class="sub">report json</div>
+  </div>
+  {nav_html()}
+</div>
+<div class="card">
+  <h2>{h(report_path.name)}</h2>
+  <div class="muted" style="font-size:12px;margin-bottom:10px">{h(str(report_path))}</div>
+  <pre>{h(raw)}</pre>
+</div>
+"""
+        return page("Report JSON", body)
 
     def dashboard_data(self) -> Dict[str, Any]:
         live = self.latest_live_payload()
@@ -2112,6 +2328,11 @@ def make_handler(app: App):
                 if parsed.path == "/live.json":
                     self._send_json(200, app.latest_live_payload())
                     return
+                if parsed.path == "/report_json":
+                    path = (params.get("path") or [""])[0]
+                    content = app.report_json_page(path)
+                    self._send(200, content)
+                    return
                 if parsed.path == "/dashboard":
                     content = app.dashboard_page()
                     self._send(200, content)
@@ -2157,7 +2378,10 @@ def make_handler(app: App):
                     cron_expr = (form.get("cron_expr") or [""])[-1].strip()
                     mode = (form.get("mode") or ["plan"])[-1].strip()
                     library = (form.get("library") or ["both"])[-1].strip()
-                    res = app.add_schedule(name, cron_expr, mode, library)
+                    schedule_type = (form.get("schedule_type") or [""])[-1].strip()
+                    time_hhmm = (form.get("time_hhmm") or ["03:00"])[-1].strip()
+                    weekday = (form.get("weekday") or ["1"])[-1].strip()
+                    res = app.add_schedule(name, cron_expr, mode, library, schedule_type, time_hhmm, weekday)
                     if res.get("ok"):
                         self._redirect("/schedule")
                     else:
