@@ -1,9 +1,5 @@
 FROM python:3.13-slim-bookworm
 
-# Runtime user — override con --build-arg PUID=1234 PGID=1234
-ARG PUID=1000
-ARG PGID=1000
-
 # Lingue Tesseract da installare a build-time (nomi pacchetti apt, space-separated).
 # Aggiungere lingue: --build-arg TESSDATA_LANGS="eng ita fra deu spa por nld"
 ARG TESSDATA_LANGS="eng ita"
@@ -25,6 +21,7 @@ RUN set -e; \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         ffmpeg \
+        gosu \
         libgl1 \
         libglib2.0-0 \
         libgomp1 \
@@ -46,13 +43,10 @@ COPY docker/entrypoint.sh /usr/local/bin/mediashrinker-entrypoint
 COPY docker/hwcheck.sh    /usr/local/bin/mediashrinker-hwcheck
 
 RUN chmod +x /usr/local/bin/mediashrinker-entrypoint /usr/local/bin/mediashrinker-hwcheck \
-    && GROUP_NAME="$(getent group "${PGID}" | cut -d: -f1 || true)" \
-    && if [ -z "${GROUP_NAME}" ]; then groupadd -g "${PGID}" appuser; GROUP_NAME=appuser; fi \
-    && useradd  -u "${PUID}" -g "${GROUP_NAME}" -M -s /sbin/nologin appuser \
+    && groupadd -g 1000 appuser \
+    && useradd -u 1000 -g appuser -M -s /sbin/nologin appuser \
     && mkdir -p /data/movies /data/tv /staging /reports \
-    && chown -R "appuser:${GROUP_NAME}" /opt/mediashrinker /staging /reports
-
-USER appuser
+    && chown -R appuser:appuser /opt/mediashrinker /staging /reports
 
 EXPOSE 8787
 
