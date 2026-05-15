@@ -468,6 +468,7 @@ class App:
             "tessdata_prefix": os.environ.get("MEDIA_TESSDATA_PREFIX", "/usr/share/tesseract-ocr/5/tessdata"),
             "encoding_profile": os.environ.get("MEDIA_ENCODING_PROFILE", "balanced"),
             "notify_url": os.environ.get("MEDIA_NOTIFY_URL", ""),
+            "force_extract_subs": os.environ.get("MEDIA_FORCE_EXTRACT_SUBS", "0"),
             "target_path": "",
         }
 
@@ -582,6 +583,9 @@ class App:
         ]
 
         cmd += ["--extract-pgs" if self._enabled(getv("extract_pgs", cfg["extract_pgs"])) else "--no-extract-pgs"]
+        # Force extraction/OCR of PGS even if video is HEVC
+        if self._enabled(getv("force_extract_subs", cfg.get("force_extract_subs", "0"))):
+            cmd += ["--force-extract-subs"]
         cmd += ["--add-external-text-subs" if self._enabled(getv("add_external_text_subs", cfg["add_external_text_subs"])) else "--no-add-external-text-subs"]
         if self._enabled(getv("no_multipass", cfg["no_multipass"])):
             cmd += ["--no-multipass"]
@@ -994,6 +998,7 @@ class App:
 
       <div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0">
         <input type="hidden" name="extract_pgs" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="extract_pgs" value="1"{checked('extract_pgs')} style="width:auto"> estrai PGS / OCR</label>
+        <input type="hidden" name="force_extract_subs" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="force_extract_subs" value="1"{checked('force_extract_subs')} style="width:auto"> Forza estrazione/OCR sottotitoli (anche su file già HEVC)</label>
         <input type="hidden" name="delete_bak" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="delete_bak" value="1"{checked('delete_bak')} style="width:auto"> elimina .bak dopo swap riuscito</label>
       </div>
 

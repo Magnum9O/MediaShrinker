@@ -1885,6 +1885,8 @@ def main() -> int:
     ap.add_argument("--notify-url", default=None,
                     help="URL ntfy (o compatibile) per notifiche push al termine del job. Es: https://ntfy.sh/mio-canale")
     ap.add_argument("--no-save-config", action="store_true", help="Non salvare ~/.mediashrinker.json")
+    ap.add_argument("--force-extract-subs", action="store_true", default=False,
+                    help="Forza l'estrazione/OCR dei sottotitoli anche se il video non richiede transcode.")
     ap.add_argument("--resume-run-id", type=int, default=None, metavar="RUN_ID",
                     help="Riprendi un run interrotto: salta i file già transcodificati/subfixed nel run indicato.")
     ap.add_argument("--target-path", default=None,
@@ -2314,7 +2316,9 @@ def main() -> int:
                     inv = read_subtitle_inventory(mkvmerge, p, mkvextract=mkvextract)
                     external_langs = find_external_text_langs(p)
                     sp = build_sub_plan(inv, external_text_langs=external_langs)
-                    need_subfix = sp.need_subfix
+                    # need_subfix can be suggested by the sub-plan, but allow forcing extraction/OCR
+                    # even when the video itself is already HEVC.
+                    need_subfix = sp.need_subfix or (getattr(args, 'force_extract_subs', False) and (len(sp.ocr_tasks) > 0 or len(inv.non_text) > 0))
                     subtitle_plan_dict = {"drop_ids": sp.drop_ids, "keep_ids": sp.keep_ids}
                     audit_dicts = [asdict(x) for x in sp.audit]
                     ocr_task_dicts = [asdict(x) for x in sp.ocr_tasks]
@@ -2390,7 +2394,8 @@ def main() -> int:
                 inv = read_subtitle_inventory(mkvmerge, p, mkvextract=mkvextract)
                 external_langs = find_external_text_langs(p)
                 sp = build_sub_plan(inv, external_text_langs=external_langs)
-                need_subfix = sp.need_subfix
+                # allow forcing extraction/OCR even when the video itself is OK
+                need_subfix = sp.need_subfix or (getattr(args, 'force_extract_subs', False) and (len(sp.ocr_tasks) > 0 or len(inv.non_text) > 0))
                 subtitle_plan_dict = {"drop_ids": sp.drop_ids, "keep_ids": sp.keep_ids}
                 audit_dicts = [asdict(x) for x in sp.audit]
                 ocr_task_dicts = [asdict(x) for x in sp.ocr_tasks]
