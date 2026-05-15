@@ -1,0 +1,96 @@
+# Docker Compose Deployment
+
+This folder contains the "deploy-only" entrypoint for running MediaShrinker with Docker Compose.
+
+The image is built from the repository root (two levels up), so you still need the whole repo checkout.
+
+This is the only supported way to run MediaShrinker.
+
+## What To Commit vs Ignore
+
+Commit (code/config):
+
+- `app/`
+- `Dockerfile`, `requirements.txt`
+- `docker/` (entrypoint + hwcheck)
+- `docker/compose/` (compose + env example)
+- `.github/workflows/` (CI)
+
+Ignore (runtime data):
+
+- `reports/` (includes `mediashrinker_runs.sqlite` and `run-*.json/.log`)
+- `staging/`
+- `logs/`
+- `tessdata/`
+- `media/` (optional local sample mounts)
+- `.env`
+
+## 1) Configure
+
+From this folder:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+
+- `MOVIES_ROOT`: host path to Movies
+- `TV_ROOT`: host path to TVSeries
+- `STAGING_ROOT`: host path to a fast local disk (SSD) for staging
+- `REPORT_ROOT`: host path where reports + `mediashrinker_runs.sqlite` live
+- `MEDIA_PORT`: host port to expose the web UI (default `8787`)
+
+Runtime knobs:
+
+- `MEDIA_LIBRARY`: `movies` / `series` / `both`
+- `MEDIA_JOBS`: parallelism
+- `MEDIA_ENCODER`: `auto` / `hevc_nvenc` / `libx265`
+- `MEDIA_OCR_ENGINE`: `pgsrip` / `none`
+- `MEDIA_OCR_LANGS`: e.g. `ita,eng,spa`
+- `MEDIA_DELETE_BAK`: `1` to delete `.bak` after successful swaps
+
+## 2) Start
+
+```bash
+docker compose up -d --build mediashrinker
+```
+
+Open:
+
+- `http://127.0.0.1:8787/ops` (operator panel: start PLAN/RUN/CLEANUP)
+- `http://127.0.0.1:8787/dashboard` (live dashboard)
+- `http://127.0.0.1:8787/schedule` (cron-like scheduler)
+- `http://127.0.0.1:8787/healthz` (health)
+
+## NVIDIA profile
+
+```bash
+docker compose --profile nvidia up -d --build mediashrinker-nvidia
+docker compose --profile nvidia run --rm mediashrinker-nvidia hwcheck
+```
+
+## VAAPI profile (Intel/AMD)
+
+```bash
+docker compose --profile vaapi up -d --build mediashrinker-vaapi
+```
+
+Requires `/dev/dri` on the host (Linux).
+
+## Watch daemon (periodic RUN loop)
+
+```bash
+docker compose --profile watchd up -d --build mediashrinker-watchd
+```
+
+Controls:
+
+- `MEDIA_WATCH_INTERVAL` (seconds between runs)
+- `MEDIA_NOTIFY_URL` (optional ntfy endpoint)
+
+## Notes
+
+- Encoding profiles: set `MEDIA_ENCODING_PROFILE` (`space_saver`, `balanced`, `quality`, `hq`).
+- Extra OCR languages: set `TESSDATA_LANGS` (build arg) and rebuild the image.
+- File ownership in container: set `PUID`/`PGID` to match the NAS owner/group, then rebuild.

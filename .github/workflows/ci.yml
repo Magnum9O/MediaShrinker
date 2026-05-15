@@ -1,0 +1,30 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Syntax check
+        run: |
+          python -m py_compile app/mediashrinker.py app/mediashrinker_web.py app/mediashrinker_core/policy.py app/mediashrinker_core/run_db.py app/mediashrinker_core/models.py
+
+      - name: Unit tests
+        working-directory: app
+        run: |
+          python -m unittest test_mediashrinker_policy.py
+
