@@ -52,6 +52,8 @@ Usa questa opzione quando vuoi un deployment ripetibile senza rebuild locali.
 
 Portainer (Stack) — istruzioni rapide:
 
+Per Portainer puoi usare il file `docker/compose/docker-compose.portainer.yml` (non richiede `.env`).
+
 - Apri Portainer → Stacks → Add stack.
 - Dai un nome allo stack (es. `mediashrinker`).
 - Nel campo "Web editor" incolla il contenuto di `docker-compose.ghcr.yml` o usa "Git repository" e punta al tuo fork con il path `docker/compose/docker-compose.ghcr.yml`.
@@ -63,13 +65,20 @@ Nota su immagini private: se l'immagine GHCR è privata, configura le credenzial
 Esempio `docker-compose` per Portainer (incolla questo come Stack):
 
 ```yaml
-version: '3.8'
 services:
   mediashrinker:
     image: ghcr.io/magnum9o/mediashrinker:latest
     container_name: mediashrinker
-    env_file:
-      - .env
+    environment:
+      MEDIA_MOVIES_DIR: /data/movies
+      MEDIA_TV_DIR: /data/tv
+      MEDIA_STAGING_DIR: /staging
+      MEDIA_REPORT_DIR: /reports
+      MEDIA_OCR_ENGINE: "pgsrip"
+      MEDIA_OCR_LANGS: "ita,eng"
+      MEDIA_EXTRACT_PGS: "1"
+      MEDIA_ADD_EXTERNAL_TEXT_SUBS: "1"
+      MEDIA_FORCE_EXTRACT_SUBS: "0"
     ports:
       - "8787:8787"
     volumes:
@@ -80,7 +89,7 @@ services:
     restart: unless-stopped
 
 # Note: in Portainer puoi incollare il contenuto sopra in Stacks → Add stack → Web editor
-# oppure collegare il repository Git che contiene `docker/compose/docker-compose.ghcr.yml`.
+# oppure collegare il repository Git che contiene `docker/compose/docker-compose.portainer.yml`.
 ```
 
 

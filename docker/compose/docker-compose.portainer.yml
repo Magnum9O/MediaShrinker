@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   mediashrinker:
     image: ghcr.io/magnum9o/mediashrinker:latest

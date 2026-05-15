@@ -1,5 +1,3 @@
-version: "3.9"
-
 x-common-env: &common-env
   MEDIA_MOVIES_DIR: /data/movies
   MEDIA_TV_DIR: /data/tv
