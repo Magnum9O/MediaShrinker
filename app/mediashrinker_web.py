@@ -101,70 +101,144 @@ def display_action(action: Optional[str], need_transcode: Any, need_subfix: Any)
     return "planned"
 
 
+APP_NAME = "MediaShrinker"
+
+
+BASE_CSS = r"""
+  :root{
+    --bg0:#0b1020;
+    --bg1:#0c1930;
+    --paper:rgba(255,255,255,.06);
+    --paper2:rgba(255,255,255,.035);
+    --ink:#eaf1fb;
+    --muted:#a7b6c8;
+    --line:rgba(255,255,255,.12);
+    --accent:#7cc9ff;
+    --accent2:#3ec9a7;
+    --ok:#7de2c9;
+    --warn:#ffd888;
+    --bad:#ff9a9a;
+    --shadow:0 1px 0 rgba(0,0,0,.25);
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0;
+    color:var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji";
+    background:
+      radial-gradient(1200px 420px at 10% -10%, rgba(91,149,255,.24), transparent 60%),
+      radial-gradient(900px 320px at 100% -20%, rgba(62,201,167,.18), transparent 55%),
+      linear-gradient(150deg, var(--bg0), var(--bg1));
+    min-height:100vh;
+  }
+  a{ color:var(--accent); text-decoration:none; }
+  a:hover{ text-decoration:underline; }
+  .wrap{ max-width:1400px; margin:0 auto; padding:18px; }
+  .topbar{
+    display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap;
+    margin-bottom:12px;
+  }
+  .brand{ display:flex; gap:12px; align-items:baseline; }
+  .brand h1{ margin:0; font-size:22px; letter-spacing:.2px; }
+  .brand .sub{ color:var(--muted); font-size:12px; }
+  .nav{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+  .nav a{ color:#cfe6ff; font-size:13px; }
+  .nav a.mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .card{
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:14px;
+    box-shadow:var(--shadow);
+    padding:12px;
+    margin-bottom:12px;
+    backdrop-filter: blur(10px);
+  }
+  h2{ margin:0 0 8px; font-size:16px; letter-spacing:.2px; }
+  .muted{ color:var(--muted); }
+  .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .grid{ display:grid; gap:10px; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); }
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th,td{ border-bottom:1px solid rgba(255,255,255,.10); padding:7px 6px; text-align:left; vertical-align:top; }
+  th{ position:sticky; top:0; background:rgba(0,0,0,.22); backdrop-filter: blur(10px); z-index:1; }
+  .chip{
+    display:inline-block;
+    font-size:11px;
+    padding:2px 7px;
+    border-radius:999px;
+    border:1px solid var(--line);
+    background:rgba(255,255,255,.04);
+    color:var(--muted);
+  }
+  .chip.ok{ border-color:rgba(62,201,167,.45); color:var(--ok); background:rgba(62,201,167,.14); }
+  .chip.warn{ border-color:rgba(244,195,91,.35); color:var(--warn); background:rgba(244,195,91,.12); }
+  .chip.bad{ border-color:rgba(255,111,111,.35); color:var(--bad); background:rgba(255,111,111,.12); }
+  pre{
+    margin:0;
+    padding:10px;
+    border-radius:10px;
+    border:1px solid var(--line);
+    background: rgba(0,0,0,.22);
+    color: var(--ink);
+    overflow:auto;
+    font-size:12px;
+  }
+  input,select,button,textarea{
+    font: inherit;
+  }
+  input,select,textarea{
+    width:100%;
+    border-radius:10px;
+    border:1px solid rgba(255,255,255,.18);
+    background: rgba(0,0,0,.22);
+    color: var(--ink);
+    padding: 9px 10px;
+    outline: none;
+  }
+  input::placeholder{ color: rgba(234,241,251,.55); }
+  button{
+    border:0;
+    border-radius:999px;
+    padding:10px 16px;
+    font-weight:700;
+    cursor:pointer;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    color: #061018;
+  }
+  button.secondary{
+    background: rgba(255,255,255,.12);
+    color: var(--ink);
+    border: 1px solid rgba(255,255,255,.18);
+  }
+  button.danger{
+    background: linear-gradient(90deg, #ff7b7b, #ffc36b);
+    color: #1d0c0c;
+  }
+"""
+
+
+def nav_html() -> str:
+    return (
+        '<div class="nav">'
+        '<a href="/dashboard">dashboard</a>'
+        '<a href="/ops">control room</a>'
+        '<a href="/live">live</a>'
+        '<a href="/schedule">scheduler</a>'
+        '<a href="/">runs</a>'
+        '<a class="mono" href="/dashboard.json">dashboard.json</a>'
+        '<a class="mono" href="/ops.json">ops.json</a>'
+        "</div>"
+    )
+
+
 def page(title: str, body: str) -> str:
     return f"""<!doctype html>
-<html lang="it">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{h(title)}</title>
   <style>
-    :root {{
-      --bg: #f7f6f2;
-      --paper: #fffefb;
-      --ink: #1e2328;
-      --muted: #5e6772;
-      --line: #d8d4cc;
-      --accent: #0b5fff;
-      --ok: #0e7a3f;
-      --bad: #b42318;
-    }}
-    body {{
-      margin: 0;
-      font-family: "IBM Plex Sans", "Segoe UI", Roboto, sans-serif;
-      color: var(--ink);
-      background:
-        radial-gradient(1200px 500px at 80% -10%, #d9e7ff 0%, transparent 70%),
-        radial-gradient(900px 500px at -10% 0%, #ffe8d4 0%, transparent 65%),
-        var(--bg);
-    }}
-    .wrap {{ max-width: 1400px; margin: 0 auto; padding: 18px; }}
-    .top {{
-      display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
-      margin-bottom: 12px;
-    }}
-    .card {{
-      background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
-      box-shadow: 0 1px 0 rgba(0,0,0,.04);
-      padding: 12px;
-      margin-bottom: 12px;
-    }}
-    h1 {{ margin: 0; font-size: 22px; }}
-    h2 {{ margin: 0 0 8px; font-size: 17px; }}
-    .muted {{ color: var(--muted); }}
-    .chips {{ display: flex; gap: 8px; flex-wrap: wrap; }}
-    .chip {{
-      border: 1px solid var(--line); border-radius: 999px; padding: 4px 9px; font-size: 12px;
-      background: #fff;
-    }}
-    table {{
-      width: 100%; border-collapse: collapse; font-size: 13px;
-    }}
-    th, td {{
-      border-bottom: 1px solid var(--line); padding: 7px 6px; text-align: left; vertical-align: top;
-    }}
-    th {{ position: sticky; top: 0; background: #f3f2ed; z-index: 1; }}
-    a {{ color: var(--accent); text-decoration: none; }}
-    a:hover {{ text-decoration: underline; }}
-    .mono {{ font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }}
-    .ok {{ color: var(--ok); font-weight: 600; }}
-    .bad {{ color: var(--bad); font-weight: 600; }}
-    .grid {{ display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }}
-    .small {{ font-size: 12px; }}
-    pre {{
-      margin: 0; padding: 10px; background: #f6f8fb; border: 1px solid var(--line);
-      border-radius: 8px; overflow: auto; font-size: 12px;
-    }}
+{BASE_CSS}
   </style>
 </head>
 <body>
@@ -446,7 +520,7 @@ class App:
 
     def add_schedule(self, name: str, cron_expr: str, mode: str, library: str) -> Dict[str, Any]:
         if not HAVE_APSCHEDULER:
-            return {"ok": False, "error": "APScheduler non installato"}
+            return {"ok": False, "error": "APScheduler not installed"}
         try:
             CronTrigger.from_crontab(cron_expr, timezone="UTC")  # type: ignore[name-defined]
         except Exception as e:
@@ -480,8 +554,11 @@ class App:
 
     def schedule_page(self, message: str = "") -> str:
         if not HAVE_APSCHEDULER:
-            return page("Scheduler", "<div class='card'><h2>APScheduler non installato</h2>"
-                        "<p>Aggiungi <code>APScheduler&gt;=3.10,&lt;4</code> a requirements.txt e ricostruisci l'immagine.</p></div>")
+            return page(
+                "Scheduler",
+                "<div class='card'><h2>APScheduler missing</h2>"
+                "<p>Install <code>APScheduler&gt;=3.10,&lt;4</code> and rebuild the image.</p></div>",
+            )
         try:
             with self.conn() as con:
                 rows = con.execute("SELECT * FROM schedules ORDER BY id DESC").fetchall()
@@ -491,7 +568,7 @@ class App:
 
         rows_html = ""
         for s in schedules:
-            status = "✓ attivo" if s.get("enabled") else "⏸ pausa"
+            status = "enabled" if s.get("enabled") else "paused"
             rows_html += (
                 f"<tr>"
                 f"<td>{s['id']}</td>"
@@ -504,49 +581,51 @@ class App:
                 f"<td>"
                 f"<form method='post' action='/schedule/toggle' style='display:inline'>"
                 f"<input type='hidden' name='id' value='{s['id']}'>"
-                f"<button type='submit'>{'Disabilita' if s.get('enabled') else 'Abilita'}</button></form> "
+                f"<button type='submit'>{'Disable' if s.get('enabled') else 'Enable'}</button></form> "
                 f"<form method='post' action='/schedule/delete' style='display:inline'>"
                 f"<input type='hidden' name='id' value='{s['id']}'>"
-                f"<button type='submit' onclick=\"return confirm('Eliminare?')\">✕</button></form>"
+                f"<button type='submit' onclick=\"return confirm('Delete schedule?')\">✕</button></form>"
                 f"</td>"
                 f"</tr>"
             )
 
-        msg_html = f"<div class='card' style='color:#0e7a3f'>{h(message)}</div>" if message else ""
+        msg_html = f"<div class='card' style='color:var(--ok)'>{h(message)}</div>" if message else ""
         body = f"""
 {msg_html}
-<div class="top">
-  <h1>MediaShrinker — Scheduler</h1>
-  <a href="/ops">control room</a>
-  <a href="/">runs</a>
+<div class="topbar">
+  <div class="brand">
+    <h1>{APP_NAME}</h1>
+    <div class="sub">scheduler</div>
+  </div>
+  {nav_html()}
 </div>
 <div class="card">
-  <h2>Aggiungi schedulazione</h2>
+  <h2>Add schedule</h2>
   <form method="post" action="/schedule/add" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
-    <div><label style="font-size:12px;display:block">Nome</label><input name="name" placeholder="Backup notturno" style="width:100%;box-sizing:border-box"></div>
-    <div><label style="font-size:12px;display:block">Cron expression <small>(UTC)</small></label><input name="cron_expr" placeholder="0 3 * * *" required style="width:100%;box-sizing:border-box"></div>
-    <div><label style="font-size:12px;display:block">Modalità</label>
+    <div><label style="font-size:12px;display:block" class="muted">Name</label><input name="name" placeholder="Nightly run" style="width:100%"></div>
+    <div><label style="font-size:12px;display:block" class="muted">Cron expression <small>(UTC)</small></label><input name="cron_expr" placeholder="0 3 * * *" required style="width:100%"></div>
+    <div><label style="font-size:12px;display:block" class="muted">Mode</label>
       <select name="mode" style="width:100%;box-sizing:border-box">
         <option value="plan">plan</option>
         <option value="run">run</option>
         <option value="cleanup">cleanup</option>
       </select></div>
-    <div><label style="font-size:12px;display:block">Libreria</label>
+    <div><label style="font-size:12px;display:block" class="muted">Library</label>
       <select name="library" style="width:100%;box-sizing:border-box">
         <option value="both">both</option>
         <option value="movies">movies</option>
         <option value="series">series</option>
       </select></div>
-    <div style="align-self:end"><button type="submit" style="padding:9px 20px">Aggiungi</button></div>
+    <div style="align-self:end"><button type="submit" style="padding:9px 20px">Add</button></div>
   </form>
-  <p class="muted small">Esempi cron: <code>0 3 * * *</code> = ogni notte alle 3 &nbsp;|&nbsp;
-     <code>0 2 * * 6</code> = sabato alle 2 &nbsp;|&nbsp; <code>30 1 * * 1-5</code> = lun-ven alle 1:30</p>
+  <p class="muted" style="font-size:12px">Examples: <code>0 3 * * *</code> = daily 03:00 &nbsp;|&nbsp;
+     <code>0 2 * * 6</code> = Saturday 02:00 &nbsp;|&nbsp; <code>30 1 * * 1-5</code> = Mon-Fri 01:30</p>
 </div>
 <div class="card">
-  <h2>Schedulazioni ({len(schedules)})</h2>
+  <h2>Schedules ({len(schedules)})</h2>
   <table>
-    <thead><tr><th>#</th><th>Nome</th><th>Cron (UTC)</th><th>Modalità</th><th>Libreria</th><th>Stato</th><th>Ultima esecuzione</th><th></th></tr></thead>
-    <tbody>{"".join([rows_html]) if schedules else "<tr><td colspan='8'>Nessuna schedulazione</td></tr>"}</tbody>
+    <thead><tr><th>#</th><th>Name</th><th>Cron (UTC)</th><th>Mode</th><th>Library</th><th>Status</th><th>Last run</th><th></th></tr></thead>
+    <tbody>{"".join([rows_html]) if schedules else "<tr><td colspan='8'>No schedules</td></tr>"}</tbody>
   </table>
 </div>
 """
@@ -598,142 +677,113 @@ class App:
         def selected(current: Any, value: str) -> str:
             return " selected" if str(current or "") == value else ""
 
-        message_html = f"<div class='ops-msg'>{h(message)}</div>" if message else ""
+        # Unified Control Room UI (global theme + English-only).
+        message_html = f"<div class='card' style='color:var(--ok)'>{h(message)}</div>" if message else ""
         stop_html = (
-            "<form method='post' action='/ops/stop'>"
-            "<button class='danger' type='submit'>Stop gentile</button>"
-            "</form>"
+            "<form method='post' action='/ops/stop'><button class='danger' type='submit'>Stop (SIGINT)</button></form>"
             if running
             else ""
         )
         body = f"""
-<style>
-.ops-shell {{
-  border-radius: 22px;
-  padding: 22px;
-  color: #edf4ff;
-  background:
-    radial-gradient(900px 360px at 12% -10%, rgba(255,174,94,.22), transparent 60%),
-    radial-gradient(900px 360px at 100% 0%, rgba(76,201,240,.22), transparent 55%),
-    linear-gradient(145deg, #12151c, #0a1a25 60%, #12151c);
-  border: 1px solid rgba(255,255,255,.13);
-}}
-.ops-top {{ display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }}
-.ops-top h1 {{ margin:0; font-size:30px; letter-spacing:.2px; }}
-.ops-nav a {{ color:#9ed8ff; margin-left:12px; font-size:13px; }}
-.ops-grid {{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; margin-top:16px; }}
-.ops-card {{ border:1px solid rgba(255,255,255,.12); border-radius:16px; padding:14px; background:rgba(2,8,18,.42); }}
-.ops-card h2 {{ margin:0 0 10px; font-size:16px; }}
-.ops-kpis {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-top:14px; }}
-.ops-kpi {{ border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:11px; background:rgba(255,255,255,.04); }}
-.ops-kpi b {{ display:block; font-size:24px; margin-top:5px; }}
-.ops-kpi span {{ color:#aac0d4; font-size:12px; text-transform:uppercase; letter-spacing:.7px; }}
-.ops-form {{ display:grid; grid-template-columns:repeat(2,minmax(220px,1fr)); gap:12px; }}
-.ops-form label {{ display:block; font-size:12px; color:#b8c8d8; margin-bottom:5px; }}
-.ops-form input, .ops-form select {{
-  width:100%; box-sizing:border-box; border:1px solid rgba(255,255,255,.16); border-radius:10px;
-  background:#08121d; color:#edf4ff; padding:9px 10px;
-}}
-.ops-checks {{ display:flex; flex-wrap:wrap; gap:12px; margin:12px 0; }}
-.ops-checks label {{ color:#d8e6f4; font-size:13px; }}
-.ops-actions {{ display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }}
-.ops-actions button, .ops-shell button {{
-  border:0; border-radius:999px; padding:10px 16px; font-weight:700; cursor:pointer;
-  background:linear-gradient(90deg,#4cc9f0,#57dfb7); color:#061018;
-}}
-.ops-shell button.secondary {{ background:#d9e6f2; color:#102033; }}
-.ops-shell button.danger {{ background:linear-gradient(90deg,#ff7b7b,#ffc36b); color:#1d0c0c; }}
-.ops-msg {{ margin-top:12px; color:#9ee8c8; }}
-.ops-mono {{ font-family: Consolas, Menlo, monospace; font-size:12px; color:#b9cce0; overflow-wrap:anywhere; }}
-@media (max-width:900px) {{ .ops-grid,.ops-form {{ grid-template-columns:1fr; }} }}
-</style>
-<div class="ops-shell">
-  <div class="ops-top">
-    <h1>MediaShrinker Control Room</h1>
-    <div class="ops-nav">
-      <a href="/dashboard">dashboard</a>
-      <a href="/live">live</a>
-      <a href="/">runs</a>
-      <a href="/schedule">scheduler</a>
-      <a class="mono" href="/ops.json">ops.json</a>
+<div class="topbar">
+  <div class="brand">
+    <h1>{APP_NAME}</h1>
+    <div class="sub">control room</div>
+  </div>
+  {nav_html()}
+</div>
+{message_html}
+
+<div class="grid">
+  <div class="card">
+    <h2>Start job</h2>
+    <div class="muted" style="font-size:12px;margin-bottom:10px">
+      The web server starts the worker process and the worker writes <span class="mono">run-*.json</span> live to
+      <span class="mono">{h(cfg['report_dir'])}</span>. The dashboard reads that JSON, so you can operate purely from the UI.
     </div>
-  </div>
-  {message_html}
-  <div class="ops-kpis">
-    <div class="ops-kpi"><span>Managed job</span><b>{'RUNNING' if running else 'IDLE'}</b></div>
-    <div class="ops-kpi"><span>Mode</span><b>{h(status.get('managed_mode') or '-')}</b></div>
-    <div class="ops-kpi"><span>PID</span><b>{h(status.get('managed_pid') or '-')}</b></div>
-    <div class="ops-kpi"><span>Live status</span><b>{h(payload.get('status') or '-')}</b></div>
-    <div class="ops-kpi"><span>Done / planned</span><b>{h(totals.get('results_done_count', 0))}/{h(totals.get('to_process_count', 0))}</b></div>
-    <div class="ops-kpi"><span>Delta GiB</span><b>{gib(totals.get('processed_delta_bytes'))}</b></div>
-  </div>
-  <div class="ops-grid">
-    <div class="ops-card">
-      <h2>Avvia lavoro</h2>
-      <form method="post" action="/ops/start">
-        <div class="ops-form">
-          <div><label>Libreria</label><select name="library">
+
+    <form method="post" action="/ops/start">
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">
+        <div>
+          <label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Library</label>
+          <select name="library">
             <option value="both"{selected(cfg['library'], 'both')}>movies + series</option>
             <option value="movies"{selected(cfg['library'], 'movies')}>movies</option>
             <option value="series"{selected(cfg['library'], 'series')}>series</option>
-          </select></div>
-          <div><label>Job paralleli</label><input name="jobs" value="{h(cfg['jobs'])}" inputmode="numeric"></div>
-          <div><label>Movies path</label><input name="movies_dir" value="{h(cfg['movies_dir'])}"></div>
-          <div><label>TVSeries path</label><input name="tv_dir" value="{h(cfg['tv_dir'])}"></div>
-          <div><label>Staging path</label><input name="staging_dir" value="{h(cfg['staging_dir'])}"></div>
-          <div><label>Report path</label><input name="report_dir" value="{h(cfg['report_dir'])}"></div>
-          <div><label>Encoder</label><select name="encoder">
-            <option value="auto"{selected(cfg['encoder'], 'auto')}>auto ({h(effective_encoder)})</option>
+          </select>
+        </div>
+        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Parallel jobs</label><input name="jobs" value="{h(cfg['jobs'])}" inputmode="numeric"></div>
+        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Movies path</label><input name="movies_dir" value="{h(cfg['movies_dir'])}"></div>
+        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">TV path</label><input name="tv_dir" value="{h(cfg['tv_dir'])}"></div>
+        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Staging path</label><input name="staging_dir" value="{h(cfg['staging_dir'])}"></div>
+        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Reports path</label><input name="report_dir" value="{h(cfg['report_dir'])}"></div>
+
+        <div>
+          <label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Encoder</label>
+          <select name="encoder">
+            <option value="auto"{selected(cfg['encoder'], 'auto')}>auto (effective: {h(effective_encoder)})</option>
             <option value="hevc_nvenc"{selected(cfg['encoder'], 'hevc_nvenc')}>hevc_nvenc (NVIDIA)</option>
             <option value="hevc_vaapi"{selected(cfg['encoder'], 'hevc_vaapi')}>hevc_vaapi (Intel/AMD)</option>
             <option value="libx265"{selected(cfg['encoder'], 'libx265')}>libx265 (CPU)</option>
-          </select></div>
-          <div><label>OCR engine</label><select name="ocr_engine">
+          </select>
+        </div>
+        <div>
+          <label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Encoding profile</label>
+          <select name="encoding_profile">
+            <option value="space_saver"{selected(cfg.get('encoding_profile','balanced'), 'space_saver')}>space_saver</option>
+            <option value="balanced"{selected(cfg.get('encoding_profile','balanced'), 'balanced')}>balanced</option>
+            <option value="quality"{selected(cfg.get('encoding_profile','balanced'), 'quality')}>quality</option>
+            <option value="hq"{selected(cfg.get('encoding_profile','balanced'), 'hq')}>hq</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="muted" style="font-size:12px;display:block;margin-bottom:5px">OCR engine</label>
+          <select name="ocr_engine">
             <option value="pgsrip"{selected(cfg['ocr_engine'], 'pgsrip')}>pgsrip</option>
             <option value="none"{selected(cfg['ocr_engine'], 'none')}>none</option>
-          </select></div>
-          <div><label>Lingue OCR target</label><input name="ocr_langs" value="{h(cfg['ocr_langs'])}"></div>
-          <div><label>Soglia bitrate Mbps</label><input name="bitrate_threshold_mbps" value="{h(cfg['bitrate_threshold_mbps'])}"></div>
-          <div><label>Soglia 4K Mbps</label><input name="bitrate_4k_mbps" value="{h(cfg['bitrate_4k_mbps'])}"></div>
-          <div><label>pgsrip bin</label><input name="pgsrip_bin" value="{h(cfg['pgsrip_bin'])}"></div>
-          <div><label>TESSDATA_PREFIX</label><input name="tessdata_prefix" value="{h(cfg['tessdata_prefix'])}"></div>
-          <div><label>Profilo encoding</label><select name="encoding_profile">
-            <option value="space_saver"{selected(cfg.get('encoding_profile','balanced'), 'space_saver')}>space_saver (massimo risparmio)</option>
-            <option value="balanced"{selected(cfg.get('encoding_profile','balanced'), 'balanced')}>balanced (default)</option>
-            <option value="quality"{selected(cfg.get('encoding_profile','balanced'), 'quality')}>quality (alta qualità)</option>
-            <option value="hq"{selected(cfg.get('encoding_profile','balanced'), 'hq')}>hq (qualità massima)</option>
-          </select></div>
-          <div><label>Notifiche ntfy (URL)</label><input name="notify_url" value="{h(cfg.get('notify_url',''))}" placeholder="https://ntfy.sh/mio-canale"></div>
+          </select>
         </div>
-        <div class="ops-checks">
-          <input type="hidden" name="extract_pgs" value="0"><label><input type="checkbox" name="extract_pgs" value="1"{checked('extract_pgs')}> estrai PGS / OCR</label>
-          <input type="hidden" name="add_external_text_subs" value="0"><label><input type="checkbox" name="add_external_text_subs" value="1"{checked('add_external_text_subs')}> mux sub testuali esterni</label>
-          <input type="hidden" name="delete_bak" value="0"><label><input type="checkbox" name="delete_bak" value="1"{checked('delete_bak')}> cancella .bak dopo ogni upload riuscito</label>
-          <input type="hidden" name="no_multipass" value="0"><label><input type="checkbox" name="no_multipass" value="1"{checked('no_multipass')}> disabilita multipass</label>
-        </div>
-        <div class="ops-actions">
-          <button name="mode" value="plan" type="submit">PLAN</button>
-          <button name="mode" value="run" type="submit">RUN</button>
-          <button class="secondary" name="mode" value="cleanup" type="submit">Solo cleanup .bak</button>
-        </div>
-      </form>
+        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">OCR target langs</label><input name="ocr_langs" value="{h(cfg['ocr_langs'])}" placeholder="ita,eng"></div>
+        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">Bitrate threshold (Mbps)</label><input name="bitrate_threshold_mbps" value="{h(cfg['bitrate_threshold_mbps'])}"></div>
+        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">4K threshold (Mbps)</label><input name="bitrate_4k_mbps" value="{h(cfg['bitrate_4k_mbps'])}"></div>
+        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">pgsrip binary</label><input name="pgsrip_bin" value="{h(cfg['pgsrip_bin'])}"></div>
+        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">TESSDATA_PREFIX</label><input name="tessdata_prefix" value="{h(cfg['tessdata_prefix'])}"></div>
+        <div><label class="muted" style="font-size:12px;display:block;margin-bottom:5px">ntfy URL (optional)</label><input name="notify_url" value="{h(cfg.get('notify_url',''))}" placeholder="https://ntfy.sh/your-topic"></div>
+      </div>
+
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0">
+        <input type="hidden" name="extract_pgs" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="extract_pgs" value="1"{checked('extract_pgs')} style="width:auto"> extract PGS / OCR</label>
+        <input type="hidden" name="add_external_text_subs" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="add_external_text_subs" value="1"{checked('add_external_text_subs')} style="width:auto"> mux external text subs (when processing)</label>
+        <input type="hidden" name="delete_bak" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="delete_bak" value="1"{checked('delete_bak')} style="width:auto"> delete .bak after each successful swap</label>
+        <input type="hidden" name="no_multipass" value="0"><label class="muted" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="no_multipass" value="1"{checked('no_multipass')} style="width:auto"> disable multipass</label>
+      </div>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button name="mode" value="plan" type="submit">PLAN (dry run)</button>
+        <button name="mode" value="run" type="submit">RUN</button>
+        <button class="secondary" name="mode" value="cleanup" type="submit">Cleanup .bak only</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Managed job</h2>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:12px">
+      <div class="card" style="margin:0;padding:10px;background:var(--paper2)"><div class="muted" style="font-size:12px">State</div><div style="font-size:22px;font-weight:800">{'RUNNING' if running else 'IDLE'}</div></div>
+      <div class="card" style="margin:0;padding:10px;background:var(--paper2)"><div class="muted" style="font-size:12px">Mode</div><div style="font-size:22px;font-weight:800">{h(status.get('managed_mode') or '-')}</div></div>
+      <div class="card" style="margin:0;padding:10px;background:var(--paper2)"><div class="muted" style="font-size:12px">PID</div><div style="font-size:22px;font-weight:800">{h(status.get('managed_pid') or '-')}</div></div>
+      <div class="card" style="margin:0;padding:10px;background:var(--paper2)"><div class="muted" style="font-size:12px">Live status</div><div style="font-size:22px;font-weight:800">{h(payload.get('status') or '-')}</div></div>
+      <div class="card" style="margin:0;padding:10px;background:var(--paper2)"><div class="muted" style="font-size:12px">Done / planned</div><div style="font-size:22px;font-weight:800">{h(totals.get('results_done_count', 0))}/{h(totals.get('to_process_count', 0))}</div></div>
+      <div class="card" style="margin:0;padding:10px;background:var(--paper2)"><div class="muted" style="font-size:12px">Delta (GiB)</div><div style="font-size:22px;font-weight:800">{gib(totals.get('processed_delta_bytes'))}</div></div>
     </div>
-    <div class="ops-card">
-      <h2>Controllo job</h2>
-      <p class="ops-mono">Il processo viene avviato dal webserver e scrive report JSON realtime in {h(cfg['report_dir'])}. La dashboard legge quel report, quindi resta utile anche in Docker senza tail dei log.</p>
-      {stop_html}
-      {f"""<form method='post' action='/ops/resume' style='margin-top:8px'>
-        <input type='hidden' name='resume_run_id' value='{aborted_run["id"]}'>
-        <button type='submit' style='background:linear-gradient(90deg,#f7b731,#ff9f43);color:#1d0c0c'>
-          Riprendi run #{aborted_run["id"]}
-          <span style='font-weight:400;font-size:11px;display:block'>
-            {h(aborted_run.get("mode") or "run")} — {aborted_run.get("results_count",0)}/{aborted_run.get("to_process_count",0)} completati
-          </span>
-        </button>
-      </form>""" if aborted_run and not running else ""}
-      <h2 style="margin-top:16px;">Configurazione runtime</h2>
-      <pre>{h(json.dumps({**cfg, 'effective_encoder': effective_encoder}, indent=2, ensure_ascii=False))}</pre>
-    </div>
+    {stop_html}
+    {f"""<form method='post' action='/ops/resume' style='margin-top:10px'>
+      <input type='hidden' name='resume_run_id' value='{aborted_run["id"]}'>
+      <button type='submit' class='secondary'>Resume run #{aborted_run["id"]} ({h(aborted_run.get("mode") or "run")} {h(aborted_run.get("results_count",0))}/{h(aborted_run.get("to_process_count",0))})</button>
+    </form>""" if aborted_run and not running else ""}
+    <h2 style="margin-top:16px">Runtime config</h2>
+    <pre>{h(json.dumps({**cfg, 'effective_encoder': effective_encoder}, indent=2, ensure_ascii=False))}</pre>
   </div>
 </div>
 """
@@ -779,22 +829,19 @@ class App:
                 f"<td>{hms(r['total_elapsed_sec'])}</td>"
                 f"<td>{gib(r['total_output_bytes'])}</td>"
                 f"<td class='mono'>{h(r['report_json_path'])}</td>"
-                f"<td><a href='/run?id={run_id}'>apri</a></td>"
+                f"<td><a href='/run?id={run_id}'>open</a></td>"
                 "</tr>"
             )
         body = f"""
-<div class="top">
-  <h1>MediaShrinker Runs</h1>
-  <span class="muted">DB: <span class="mono">{h(self.db_path)}</span></span>
-  <a href="/ops">control room</a>
-  <a href="/dashboard">dashboard</a>
-  <a href="/live">live monitor</a>
-  <a href="/live.json" class="mono">live.json</a>
+<div class="topbar">
+  <div class="brand">
+    <h1>{APP_NAME}</h1>
+    <div class="sub">runs · <span class="mono">{h(self.db_path)}</span></div>
+  </div>
+  {nav_html()}
 </div>
 <div class="card">
-  <div class="chips">
-    <span class="chip">runs: {len(runs)}</span>
-  </div>
+  <span class="chip">runs: {len(runs)}</span>
 </div>
 <div class="card">
   <table>
@@ -806,7 +853,7 @@ class App:
       </tr>
     </thead>
     <tbody>
-      {"".join(rows) if rows else "<tr><td colspan='12'>Nessun run nel DB</td></tr>"}
+      {"".join(rows) if rows else "<tr><td colspan='12'>No runs in DB</td></tr>"}
     </tbody>
   </table>
 </div>
@@ -815,7 +862,7 @@ class App:
 
     def run_page(self, run_id: int, params: Dict[str, List[str]]) -> str:
         if not self.files_table:
-            return page("Schema Error", "<div class='card'><h2>Tabella files/file_items non trovata</h2></div>")
+            return page("Schema Error", "<div class='card'><h2>files/file_items table not found</h2></div>")
         q = (params.get("q") or [""])[0].strip()
         action = (params.get("action") or [""])[0].strip()
         lang = (params.get("lang") or [""])[0].strip()
@@ -941,7 +988,7 @@ class App:
                 (run_id,),
             ).fetchall()
         if not run:
-            return page("Run Not Found", "<div class='card'><h2>Run non trovato</h2><a href='/'>torna alla lista</a></div>")
+            return page("Run Not Found", "<div class='card'><h2>Run not found</h2><a href='/'>Back to runs</a></div>")
 
         def aggregate_sizes(rows_in: List[sqlite3.Row]) -> tuple[int, int, int, Optional[float]]:
             tot_before = 0
@@ -1045,9 +1092,12 @@ class App:
             }
         )
         body = f"""
-<div class="top">
-  <h1>Run #{int(run['id'])}</h1>
-  <a href="/">torna a runs</a>
+<div class="topbar">
+  <div class="brand">
+    <h1>{APP_NAME}</h1>
+    <div class="sub">run #{int(run['id'])}</div>
+  </div>
+  {nav_html()}
 </div>
 <div class="card">
   <div class="chips">{chips}</div>
@@ -1055,45 +1105,45 @@ class App:
 </div>
 <div class="grid">
   <div class="card">
-    <h2>Config Snapshot</h2>
+    <h2>Config snapshot</h2>
     <pre>{cfg_pre}</pre>
   </div>
   <div class="card">
-    <h2>Legenda</h2>
+    <h2>Legend</h2>
     <p class="small muted">
-      `text/non-text`: lingue aggregate prima/dopo.<br>
-      `ocr`: lingue pianificate -> lingue trovate dopo nel file (track name con OCR).<br>
-      click sul file per dettaglio track-by-track.
+      <span class="mono">text/non-text</span>: aggregated subtitle languages before/after.<br>
+      <span class="mono">ocr</span>: planned languages -> languages found after in the output file (OCR track tag).<br>
+      Click a file for per-track details.
     </p>
   </div>
 </div>
 <div class="card">
-  <h2>Filtri</h2>
+  <h2>Filters</h2>
   <form method="get" action="/run" class="small">
     <input type="hidden" name="id" value="{run_id}">
     <div class="chips" style="margin-bottom:8px;">
-      <input name="q" value="{h(q)}" placeholder="cerca file (path)" style="min-width:260px;">
+      <input name="q" value="{h(q)}" placeholder="search (path)" style="min-width:260px;">
       <select name="action">
-        <option value="" {"selected" if not action else ""}>action: tutte</option>
+        <option value="" {"selected" if not action else ""}>action: all</option>
         <option value="transcoded" {"selected" if action=="transcoded" else ""}>transcoded</option>
         <option value="subfixed" {"selected" if action=="subfixed" else ""}>subfixed</option>
         <option value="failed" {"selected" if action=="failed" else ""}>failed</option>
         <option value="skipped" {"selected" if action=="skipped" else ""}>skipped</option>
       </select>
-      <input name="lang" value="{h(lang)}" placeholder="lingua (ita, eng, spa...)">
+      <input name="lang" value="{h(lang)}" placeholder="language (ita, eng, spa...)">
       <select name="has_ocr">
-        <option value="" {"selected" if not has_ocr else ""}>ocr: tutti</option>
-        <option value="planned" {"selected" if has_ocr=="planned" else ""}>ocr planned</option>
-        <option value="after" {"selected" if has_ocr=="after" else ""}>ocr found after</option>
-        <option value="any" {"selected" if has_ocr=="any" else ""}>ocr any</option>
+        <option value="" {"selected" if not has_ocr else ""}>ocr: all</option>
+        <option value="planned" {"selected" if has_ocr=="planned" else ""}>planned</option>
+        <option value="after" {"selected" if has_ocr=="after" else ""}>after</option>
+        <option value="any" {"selected" if has_ocr=="any" else ""}>any</option>
       </select>
-      <label><input type="checkbox" name="errors" value="1" {"checked" if errors_only else ""}> solo errori</label>
-      <input name="min_saving" value="{h(min_saving)}" placeholder="risparmio min % (es 20)">
-      <button type="submit">Applica</button>
+      <label class="muted"><input type="checkbox" name="errors" value="1" {"checked" if errors_only else ""} style="width:auto"> errors only</label>
+      <input name="min_saving" value="{h(min_saving)}" placeholder="min saving % (e.g. 20)">
+      <button type="submit">Apply</button>
       <a href="/run?id={run_id}">Reset</a>
     </div>
   </form>
-  <p class="small muted">Mostrati: <b>{len(files)}</b> file filtrati. Link condivisibile:
+  <p class="small muted">Showing: <b>{len(files)}</b> files. Shareable link:
   <a class="mono" href="/run?{filter_query}">/run?{h(filter_query)}</a></p>
 </div>
 <div class="card">
@@ -1106,7 +1156,7 @@ class App:
       </tr>
     </thead>
     <tbody>
-      {"".join(rows) if rows else "<tr><td colspan='19'>Nessun file in questo run</td></tr>"}
+      {"".join(rows) if rows else "<tr><td colspan='19'>No files in this run</td></tr>"}
     </tbody>
   </table>
 </div>
@@ -1191,8 +1241,10 @@ class App:
         live = self.latest_live_payload()
         if not live.get("ok"):
             body = (
-                "<div class='top'><h1>Live Monitor</h1><a href='/'>torna a runs</a></div>"
-                f"<div class='card'><h2>Live non disponibile</h2><pre>{h(json.dumps(live, indent=2, ensure_ascii=False))}</pre></div>"
+                "<div class='topbar'><div class='brand'><h1>MediaShrinker</h1><div class='sub'>live</div></div>"
+                + nav_html()
+                + "</div>"
+                f"<div class='card'><h2>Live not available</h2><pre>{h(json.dumps(live, indent=2, ensure_ascii=False))}</pre></div>"
             )
             return page("MediaShrinker Live", body)
 
@@ -1214,11 +1266,12 @@ class App:
             f"<span class='chip'>delta: {gib(totals.get('processed_delta_bytes'))} GiB ({pct(totals.get('processed_delta_pct'))})</span>"
         )
         body = f"""
-<div class="top">
-  <h1>Live Monitor</h1>
-  <a href="/">torna a runs</a>
-  {f'<a href="/run?id={run_id}">vai al run #{run_id}</a>' if run_id > 0 else ''}
-  <a href="/live.json" class="mono">/live.json</a>
+<div class="topbar">
+  <div class="brand">
+    <h1>{APP_NAME}</h1>
+    <div class="sub">live</div>
+  </div>
+  {nav_html()}
 </div>
 <div class="card"><div class="chips">{chips}</div></div>
 <div class="grid">
@@ -1386,171 +1439,96 @@ setTimeout(function() {{ window.location.reload(); }}, 2000);
         }
 
     def dashboard_page(self) -> str:
-        body = """
+        # Unified dashboard look (same global theme as other pages).
+        body = f"""
+<div class="topbar">
+  <div class="brand">
+    <h1>{APP_NAME}</h1>
+    <div class="sub">dashboard</div>
+  </div>
+  {nav_html()}
+</div>
+
 <style>
-:root {
-  --db-bg: #0f1723;
-  --db-bg2: #101f31;
-  --db-ink: #e8edf4;
-  --db-muted: #9fb0c3;
-  --db-line: rgba(255,255,255,.12);
-  --db-accent: #3ec9a7;
-  --db-warn: #f4c35b;
-  --db-bad: #ff6f6f;
-  --db-glow: rgba(62,201,167,.28);
-}
-.dash-shell {
-  border-radius: 20px;
-  border: 1px solid rgba(255,255,255,.14);
-  background:
-    radial-gradient(1400px 420px at 10% -10%, rgba(91,149,255,.25), transparent 60%),
-    radial-gradient(900px 320px at 100% -20%, rgba(62,201,167,.20), transparent 55%),
-    linear-gradient(150deg, var(--db-bg), var(--db-bg2));
-  color: var(--db-ink);
-  padding: 18px;
-}
-.dash-top {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
-}
-.dash-title {
-  font-family: "Avenir Next", "IBM Plex Sans", "Segoe UI", sans-serif;
-  letter-spacing: .4px;
-  font-size: 28px;
-  margin: 0;
-}
-.dash-link { color: #9dd8ff; font-size: 13px; margin-right: 10px; }
-.kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
-  margin-bottom: 12px;
-}
-.kpi {
-  border: 1px solid var(--db-line);
-  border-radius: 14px;
-  padding: 12px;
-  background: rgba(255,255,255,.03);
-}
-.kpi .label { color: var(--db-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .7px; }
-.kpi .val { font-size: 26px; font-weight: 700; margin-top: 6px; }
-.progress-wrap { margin: 14px 0 18px; }
-.progress-head { display:flex; justify-content:space-between; color: var(--db-muted); font-size: 12px; margin-bottom: 6px; }
-.progress {
-  height: 14px;
-  border-radius: 999px;
-  border: 1px solid var(--db-line);
-  background: rgba(255,255,255,.08);
-  overflow: hidden;
-}
-.progress > i {
-  display: block;
-  height: 100%;
-  width: 0%;
-  background: linear-gradient(90deg, #3ec9a7 0%, #8de36d 100%);
-  box-shadow: 0 0 20px var(--db-glow);
-  transition: width .5s ease;
-}
-.dash-grid {
-  display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  gap: 12px;
-}
-.panel {
-  border: 1px solid var(--db-line);
-  border-radius: 14px;
-  background: rgba(4,9,16,.35);
-  padding: 12px;
-}
-.panel h3 { margin: 0 0 8px; font-size: 15px; letter-spacing: .2px; }
-.list { max-height: 330px; overflow: auto; }
-.item {
-  border-bottom: 1px solid rgba(255,255,255,.08);
-  padding: 7px 0;
-}
-.item:last-child { border-bottom: 0; }
-.item .n { font-weight: 600; font-size: 13px; color: #edf3ff; }
-.item .m { font-size: 12px; color: var(--db-muted); }
-.chip-ok, .chip-warn, .chip-bad {
-  display:inline-block; font-size:11px; padding:2px 7px; border-radius:999px; margin-right:6px;
-}
-.chip-ok { background: rgba(62,201,167,.18); color:#7de2c9; border:1px solid rgba(62,201,167,.4); }
-.chip-warn { background: rgba(244,195,91,.16); color:#ffd888; border:1px solid rgba(244,195,91,.35); }
-.chip-bad { background: rgba(255,111,111,.16); color:#ff9a9a; border:1px solid rgba(255,111,111,.35); }
-.spark-row { display:grid; grid-template-columns: 84px 1fr 70px; gap:8px; align-items:center; margin-bottom:6px; }
-.spark-bar { height:8px; border-radius:999px; background:rgba(255,255,255,.1); overflow:hidden; }
-.spark-bar i { display:block; height:100%; background:linear-gradient(90deg,#5b95ff,#3ec9a7); width:0%; }
-@media (max-width: 920px) {
-  .dash-grid { grid-template-columns: 1fr; }
-}
+.kpi-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; }}
+.kpi {{ background:var(--paper2); border:1px solid var(--line); border-radius:14px; padding:12px; }}
+.kpi .label {{ color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.7px; }}
+.kpi .val {{ font-size:26px; font-weight:800; margin-top:6px; }}
+.progress-wrap {{ margin: 12px 0 14px; }}
+.progress-head {{ display:flex; justify-content:space-between; color:var(--muted); font-size:12px; margin-bottom:6px; }}
+.progress {{ height:14px; border-radius:999px; border:1px solid var(--line); background:rgba(255,255,255,.08); overflow:hidden; }}
+.progress > i {{ display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--accent),var(--accent2)); box-shadow:0 0 18px rgba(62,201,167,.24); transition:width .5s ease; }}
+.panel {{ background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:12px; }}
+.panel h3 {{ margin:0 0 8px; font-size:15px; letter-spacing:.2px; }}
+.list {{ max-height: 320px; overflow:auto; }}
+.item {{ border-bottom:1px solid rgba(255,255,255,.10); padding:7px 0; }}
+.item:last-child {{ border-bottom:0; }}
+.item .n {{ font-weight:700; font-size:13px; color:var(--ink); }}
+.item .m {{ font-size:12px; color:var(--muted); }}
+.two-col {{ display:grid; grid-template-columns:1.2fr 1fr; gap:12px; }}
+@media (max-width: 920px) {{ .two-col {{ grid-template-columns:1fr; }} }}
+.spark-row {{ display:grid; grid-template-columns:84px 1fr 70px; gap:8px; align-items:center; margin-bottom:6px; }}
+.spark-bar {{ height:8px; border-radius:999px; background:rgba(255,255,255,.10); overflow:hidden; }}
+.spark-bar i {{ display:block; height:100%; background:linear-gradient(90deg,var(--accent),var(--accent2)); width:0%; }}
 </style>
-<div class="dash-shell">
-  <div class="dash-top">
-    <h1 class="dash-title">MediaShrinker Mission Dashboard</h1>
-    <div>
-      <a class="dash-link" href="/ops">control room</a>
-      <a class="dash-link" href="/">runs</a>
-      <a class="dash-link" href="/live">live</a>
-      <a class="dash-link mono" href="/dashboard.json">dashboard.json</a>
-    </div>
+
+<div class="kpi-grid">
+  <div class="kpi"><div class="label">Run</div><div class="val" id="k-run">-</div></div>
+  <div class="kpi"><div class="label">Converting</div><div class="val" id="k-conv">0</div></div>
+  <div class="kpi"><div class="label">Queued</div><div class="val" id="k-queue">0</div></div>
+  <div class="kpi"><div class="label">Done</div><div class="val" id="k-done">0</div></div>
+  <div class="kpi"><div class="label">Failed</div><div class="val" id="k-fail">0</div></div>
+  <div class="kpi"><div class="label">Input GiB</div><div class="val" id="k-in">0.00</div></div>
+  <div class="kpi"><div class="label">Output GiB</div><div class="val" id="k-out">0.00</div></div>
+  <div class="kpi"><div class="label">Delta GiB</div><div class="val" id="k-delta">0.00</div></div>
+  <div class="kpi"><div class="label">Delta %</div><div class="val" id="k-delta-p">-</div></div>
+</div>
+
+<div class="progress-wrap">
+  <div class="progress-head">
+    <span id="p-status">status: -</span>
+    <span id="p-count">0 / 0</span>
   </div>
-  <div class="kpi-grid">
-    <div class="kpi"><div class="label">Run</div><div class="val" id="k-run">-</div></div>
-    <div class="kpi"><div class="label">In conversione ora</div><div class="val" id="k-conv">0</div></div>
-    <div class="kpi"><div class="label">In coda</div><div class="val" id="k-queue">0</div></div>
-    <div class="kpi"><div class="label">Completati</div><div class="val" id="k-done">0</div></div>
-    <div class="kpi"><div class="label">Errori</div><div class="val" id="k-fail">0</div></div>
-    <div class="kpi"><div class="label">Input GiB</div><div class="val" id="k-in">0.00</div></div>
-    <div class="kpi"><div class="label">Output GiB</div><div class="val" id="k-out">0.00</div></div>
-    <div class="kpi"><div class="label">Delta GiB</div><div class="val" id="k-delta">0.00</div></div>
-    <div class="kpi"><div class="label">Delta %</div><div class="val" id="k-delta-p">-</div></div>
+  <div class="progress"><i id="p-bar"></i></div>
+</div>
+
+<div class="two-col">
+  <div class="panel">
+    <h3>Active (converting now)</h3>
+    <div id="active-list" class="list"></div>
   </div>
-  <div class="progress-wrap">
-    <div class="progress-head">
-      <span id="p-status">status: -</span>
-      <span id="p-count">0 / 0</span>
-    </div>
-    <div class="progress"><i id="p-bar"></i></div>
-  </div>
-  <div class="dash-grid">
-    <div class="panel">
-      <h3>Film In Conversione Ora</h3>
-      <div id="active-list" class="list"></div>
-    </div>
-    <div class="panel">
-      <h3>Film In Coda (preview)</h3>
-      <div id="queue-list" class="list"></div>
-    </div>
-  </div>
-  <div class="panel" style="margin-top:12px;">
-    <h3>Ultimi Completati</h3>
-    <div id="done-list" class="list"></div>
-  </div>
-  <div class="panel" style="margin-top:12px;">
-    <h3>Storico Run (ultimo 20)</h3>
-    <div id="history"></div>
+  <div class="panel">
+    <h3>Queue (preview)</h3>
+    <div id="queue-list" class="list"></div>
   </div>
 </div>
+
+<div class="panel" style="margin-top:12px;">
+  <h3>Latest completed</h3>
+  <div id="done-list" class="list"></div>
+</div>
+
+<div class="panel" style="margin-top:12px;">
+  <h3>Run history (last 20)</h3>
+  <div id="history"></div>
+</div>
+
 <script>
-function fmtGiB(n){ if(n===null||n===undefined) return "-"; return (n/1024/1024/1024).toFixed(2); }
-function fmtPct(v){ if(v===null||v===undefined) return "-"; return (v>=0?"+":"") + v.toFixed(1) + "%"; }
-function esc(s){ return (s===null||s===undefined)?"":String(s).replace(/[&<>\"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[m])); }
+function fmtGiB(n){{ if(n===null||n===undefined) return \"-\"; return (n/1024/1024/1024).toFixed(2); }}
+function fmtPct(v){{ if(v===null||v===undefined) return \"-\"; return (v>=0?\"+\":\"\") + v.toFixed(1) + \"%\"; }}
+function esc(s){{ return (s===null||s===undefined)?\"\":String(s).replace(/[&<>\\\"']/g, m => ({{'&':'&amp;','<':'&lt;','>':'&gt;','\\\"':'&quot;','\\'':'&#39;'}}[m])); }}
 let _dashSeq = 0;
-async function loadDash(){
+async function loadDash(){{
   const mySeq = ++_dashSeq;
-  try{
-    const r = await fetch('/dashboard.json', {cache:'no-store'});
+  try{{
+    const r = await fetch('/dashboard.json', {{cache:'no-store'}});
     const d = await r.json();
-    if(mySeq !== _dashSeq) return; // avoid out-of-order updates
-    if(!d.ok){
+    if(mySeq !== _dashSeq) return;
+    if(!d.ok){{
       document.getElementById('k-run').textContent = '-';
       document.getElementById('p-status').textContent = 'status: no-live';
       return;
-    }
+    }}
     document.getElementById('k-run').textContent = '#' + d.run_id;
     document.getElementById('k-conv').textContent = d.kpi.converting;
     document.getElementById('k-queue').textContent = d.kpi.queued;
@@ -1564,45 +1542,40 @@ async function loadDash(){
     document.getElementById('p-count').textContent = (d.kpi.done||0) + ' / ' + (d.totals.to_process_count||0);
     document.getElementById('p-bar').style.width = Math.max(0, Math.min(100, d.kpi.progress_pct || 0)) + '%';
 
-    const active = (d.active_cards||[]).map(x => {
-      if(x.text){
-        return `<div class="item"><div class="n">J${x.slot} · ${esc(x.text||'')}</div></div>`;
-      }
-      const est = x.estimated ? ' <span class="chip-warn">stimato</span>' : '';
-      return `<div class="item"><div class="n">${esc(x.name||'')}</div><div class="m">job attivo${est}</div></div>`;
-    }).join('') || '<div class="item m">Nessun job attivo.</div>';
+    const active = (d.active_cards||[]).map(x => {{
+      if(x.text) return `<div class=\"item\"><div class=\"n\">J${{x.slot}} · ${{esc(x.text||'')}}</div></div>`;
+      const est = x.estimated ? ' <span class=\"chip warn\">estimated</span>' : '';
+      return `<div class=\"item\"><div class=\"n\">${{esc(x.name||'')}}</div><div class=\"m\">active job${{est}}</div></div>`;
+    }}).join('') || '<div class=\"item m\">No active jobs.</div>';
     document.getElementById('active-list').innerHTML = active;
 
     const queue = (d.pending_cards||[]).map(x =>
-      `<div class="item"><div class="n">${esc(x.name)}</div><div class="m">` +
-      `${x.need_transcode?'<span class="chip-warn">transcode</span>':''}` +
-      `${x.need_subfix?'<span class="chip-ok">subfix</span>':''}` +
-      `${esc((x.reasons_video||[]).slice(0,2).join(' | '))}</div></div>`
-    ).join('') || '<div class="item m">Nessun file in coda.</div>';
+      `<div class=\"item\"><div class=\"n\">${{esc(x.name)}}</div><div class=\"m\">` +
+      `${{x.need_transcode?'<span class=\"chip warn\">transcode</span>':''}}` +
+      `${{x.need_subfix?'<span class=\"chip ok\">subfix</span>':''}}` +
+      `${{esc((x.reasons_video||[]).slice(0,2).join(' | '))}}</div></div>`
+    ).join('') || '<div class=\"item m\">Queue is empty.</div>';
     document.getElementById('queue-list').innerHTML = queue;
 
     const done = (d.recent_results||[]).reverse().map(x =>
-      `<div class="item"><div class="n">${esc(x.name||x.path||'')}</div><div class="m">` +
-      `${(x.error?'<span class="chip-bad">failed</span>':('<span class="chip-ok">'+esc(x.action||'done')+'</span>'))}` +
-      `elapsed ${esc(x.elapsed_sec||0)}s · output ${fmtGiB(x.output_bytes)} GiB</div></div>`
-    ).join('') || '<div class="item m">Nessun risultato ancora.</div>';
+      `<div class=\"item\"><div class=\"n\">${{esc(x.name||x.path||'')}}</div><div class=\"m\">` +
+      `${{(x.error?'<span class=\"chip bad\">failed</span>':('<span class=\"chip ok\">'+esc(x.action||'done')+'</span>'))}}` +
+      `elapsed ${{esc(x.elapsed_sec||0)}}s · output ${{fmtGiB(x.output_bytes)}} GiB</div></div>`
+    ).join('') || '<div class=\"item m\">No results yet.</div>';
     document.getElementById('done-list').innerHTML = done;
 
     const hist = d.history || [];
     const maxOut = Math.max(1, ...hist.map(h => h.total_output_bytes || 0));
     document.getElementById('history').innerHTML = hist.map(h =>
-      `<div class="spark-row"><div class="m">#${h.id}</div>` +
-      `<div class="spark-bar"><i style="width:${Math.round((100*(h.total_output_bytes||0))/maxOut)}%"></i></div>` +
-      `<div class="m">${fmtGiB(h.total_output_bytes)} GiB</div></div>`
-    ).join('') || '<div class="m">Nessuno storico.</div>';
-  }catch(e){
+      `<div class=\"spark-row\"><div class=\"m\">#${{h.id}}</div>` +
+      `<div class=\"spark-bar\"><i style=\"width:${{Math.round((100*(h.total_output_bytes||0))/maxOut)}}%\"></i></div>` +
+      `<div class=\"m\">${{fmtGiB(h.total_output_bytes)}} GiB</div></div>`
+    ).join('') || '<div class=\"m\">No history.</div>';
+  }}catch(e){{
     document.getElementById('p-status').textContent = 'status: error';
-  }
-}
-async function dashLoop(){
-  await loadDash();
-  setTimeout(dashLoop, 2000);
-}
+  }}
+}}
+async function dashLoop(){{ await loadDash(); setTimeout(dashLoop, 2000); }}
 dashLoop();
 </script>
 """
@@ -1610,7 +1583,7 @@ dashLoop();
 
     def file_page(self, run_id: int, path: str) -> str:
         if not self.files_table:
-            return page("Schema Error", "<div class='card'><h2>Tabella files/file_items non trovata</h2></div>")
+            return page("Schema Error", "<div class='card'><h2>files/file_items table not found</h2></div>")
         with self.conn() as con:
             f = con.execute(
                 f"""
@@ -1638,7 +1611,7 @@ dashLoop();
             else:
                 tracks = []
         if not f:
-            return page("File Not Found", "<div class='card'><h2>File non trovato</h2><a href='/'>torna</a></div>")
+            return page("File Not Found", "<div class='card'><h2>File not found</h2><a href='/'>Back</a></div>")
 
         before_rows, after_rows = [], []
         for t in tracks:
@@ -1712,7 +1685,7 @@ dashLoop();
         body = f"""
 <div class="top">
   <h1>{h(Path(path).name)}</h1>
-  <a href="/run?id={run_id}">torna al run #{run_id}</a>
+  <a href="/run?id={run_id}">Back to run #{run_id}</a>
 </div>
 <div class="card">
   <div class="chips">
@@ -1742,14 +1715,14 @@ dashLoop();
   <h2>Subtitle Tracks BEFORE</h2>
   <table>
     <thead><tr><th>id</th><th>codec</th><th>lang</th><th>name</th><th>text</th><th>forced</th><th>default</th></tr></thead>
-    <tbody>{"".join(before_rows) if before_rows else "<tr><td colspan='7'>Nessuna track</td></tr>"}</tbody>
+    <tbody>{"".join(before_rows) if before_rows else "<tr><td colspan='7'>No tracks</td></tr>"}</tbody>
   </table>
 </div>
 <div class="card">
   <h2>Subtitle Tracks AFTER</h2>
   <table>
     <thead><tr><th>id</th><th>codec</th><th>lang</th><th>name</th><th>text</th><th>forced</th><th>default</th></tr></thead>
-    <tbody>{"".join(after_rows) if after_rows else "<tr><td colspan='7'>Nessuna track</td></tr>"}</tbody>
+    <tbody>{"".join(after_rows) if after_rows else "<tr><td colspan='7'>No tracks</td></tr>"}</tbody>
   </table>
 </div>
 """

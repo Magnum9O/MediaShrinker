@@ -50,6 +50,13 @@ Runtime knobs:
 - `MEDIA_OCR_LANGS`: e.g. `ita,eng,spa`
 - `MEDIA_DELETE_BAK`: `1` to delete `.bak` after successful swaps
 
+## PLAN vs RUN
+
+- **PLAN** (dry run) scans and analyzes the library, produces a queue + reasons, writes live `run-*.json` and stores a run in SQLite. It does not modify media files.
+- **RUN** executes the plan: copy to staging, subtitle work/OCR if needed, transcode if needed, then swap back to the library.
+
+Recommended workflow: run PLAN first, check `/dashboard` and the run detail page, then run RUN.
+
 ## 2) Start
 
 ```bash

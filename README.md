@@ -41,6 +41,25 @@ open http://localhost:8787
 
 The web UI lets you run **PLAN** (dry run), **RUN** (transcode), or **cleanup** jobs with a single click.
 
+## PLAN vs RUN (why PLAN exists)
+
+MediaShrinker is designed to operate safely on large libraries and network mounts. For that reason, **PLAN** is a first-class action, not a debug-only feature.
+
+- **PLAN** (dry run)
+  - Scans and analyzes the library and produces a plan (what would be processed and why).
+  - Writes a live `run-*.json` report and persists the run in SQLite.
+  - Does not copy to staging, transcode, OCR, or replace files.
+  - Use it to validate: mounts/paths, permissions, tools, OCR config, and to preview the queue in the dashboard.
+
+- **RUN** (execute)
+  - Executes the plan: copies only the needed files to staging, runs subtitle fixing/OCR if required, transcodes if required, then swaps the result back to the library.
+  - Also writes live `run-*.json` + SQLite history.
+
+Recommended workflow:
+
+1. Run **PLAN** from `/ops`, then check `/dashboard` and the run detail page.
+2. If the queue and reasons look correct, run **RUN**.
+
 ## Supported Usage
 
 This repository is **Docker-first and Docker-only**.
