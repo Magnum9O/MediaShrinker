@@ -315,7 +315,12 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
                 "timestamp: 00:00:03:000, filepos: 000000111\n",
                 encoding="utf-8",
             )
-            self.assertEqual(parse_vobsub_idx_timestamps(idx_path), [(1.5, 2.999), (3.0, 7.999)])
+            windows = parse_vobsub_idx_timestamps(idx_path)
+            self.assertEqual(len(windows), 2)
+            self.assertAlmostEqual(windows[0][0], 1.5)
+            self.assertAlmostEqual(windows[0][1], 2.999)
+            self.assertAlmostEqual(windows[1][0], 3.0)
+            self.assertAlmostEqual(windows[1][1], 7.999)
 
     def test_extract_vobsub_for_ocr_uses_idx_output(self) -> None:
         tr = mk_track(16, "VobSub", "ita")

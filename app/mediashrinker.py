@@ -722,6 +722,9 @@ LANG_ALIASES = {
 }
 TARGET_OCR_LANGS = {"ita", "eng"}
 LANG_DETECT_SAMPLE_BYTES = 12 * 1024
+MIN_BITMAP_SUB_DISPLAY_SEC = 0.2
+SUBTITLE_BOUNDARY_EPSILON_SEC = 0.001
+OCR_BBOX_THRESHOLD = 8
 ITA_HINT_WORDS = {
     "che", "non", "per", "con", "sono", "come", "questo", "questa", "della",
     "delle", "degli", "allora", "anche", "perche", "perché", "quindi", "grazie",
@@ -1286,6 +1289,7 @@ def mkv_lang_to_tesseract_lang(lang3: str) -> str:
     return "und"
 
 def _parse_vobsub_timestamp(raw: str) -> float:
+    # VobSub .idx timestamps use HH:MM:SS:MS where the fourth field is milliseconds.
     m = re.fullmatch(r"(\d+):(\d+):(\d+):(\d+)", raw.strip())
     if not m:
         raise RuntimeError(f"invalid VobSub timestamp: {raw}")
@@ -1304,7 +1308,9 @@ def parse_vobsub_idx_timestamps(idx_path: Path) -> List[Tuple[float, float]]:
     windows: List[Tuple[float, float]] = []
     for i, start in enumerate(starts):
         next_start = starts[i + 1] if i + 1 < len(starts) else (start + 5.0)
-        end = max(start + 0.2, next_start - 0.001)
+        # Keep each OCR sample visible for at least a short interval and avoid overlapping
+        # the next subtitle window when two cues are adjacent.
+        end = max(start + MIN_BITMAP_SUB_DISPLAY_SEC, next_start - SUBTITLE_BOUNDARY_EPSILON_SEC)
         windows.append((start, end))
     return windows
 
@@ -1350,7 +1356,9 @@ def ocr_bitmap_image_to_text(image_path: Path, *, tessdata_prefix: str, ocr_lang
     os.environ["TESSDATA_PREFIX"] = tessdata_prefix
     with Image.open(image_path) as img:
         gray = img.convert("L")
-        bbox = gray.point(lambda p: 255 if p > 8 else 0).getbbox()
+        # Bitmap subtitles are usually bright text over black/transparent background; a very
+        # low threshold keeps faint antialiased glyph edges inside the crop box for OCR.
+        bbox = gray.point(lambda p: 255 if p > OCR_BBOX_THRESHOLD else 0).getbbox()
         if bbox:
             gray = gray.crop(bbox)
         text = pytesseract.image_to_string(gray, lang="+".join(langs), config="--psm 6").strip()
@@ -1393,9 +1401,10 @@ def vobsub_idx_to_srt(
                 continue
             if last_window and text == last_text:
                 prev_start, _ = last_window
+                prev_index = len(entries)
                 last_window = (prev_start, end_sec)
                 entries[-1] = (
-                    f"{len(entries)}\n"
+                    f"{prev_index}\n"
                     f"{_fmt_srt_timestamp(prev_start)} --> {_fmt_srt_timestamp(end_sec)}\n"
                     f"{text}\n"
                 )
