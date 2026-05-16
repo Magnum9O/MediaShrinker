@@ -1402,7 +1402,7 @@ class App:
         report_json_path = str(run["report_json_path"] or "").strip()
         report_log_path = str(run["report_log_path"] or "").strip()
         report_json_link = "/report_json?path=" + quote(report_json_path, safe="") if report_json_path else ""
-        report_log_tail_raw = tail_lines(Path(report_log_path), limit=220) if report_log_path else []
+        report_log_tail_raw = tail_lines(Path(report_log_path), limit=220) if (report_log_path and Path(report_log_path).exists()) else []
         report_log_tail = [
             line for line in report_log_tail_raw
             if ("copy-in: NAS -> SSD" not in line and "Copy SSD " not in line)
@@ -1458,7 +1458,7 @@ class App:
       {f"<a class='navbtn' href='{report_json_link}' target='_blank'>Apri report JSON</a>" if report_json_link else ""}
       {f"<span class='chip mono'>{h(report_log_path)}</span>" if report_log_path else "<span class='chip'>report log: n/d</span>"}
     </div>
-    <div class="small-inline">Evita ridondanze: usa i filtri per arrivare subito ai file con errore/OCR/subfix.</div>
+    <div class="small-inline">Evita ridondanza: usa i filtri per arrivare subito ai file con errore/OCR/subfix.</div>
   </div>
 </div>
 <div class="card">
