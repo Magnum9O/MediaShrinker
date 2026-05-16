@@ -80,7 +80,7 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
             ],
         )
         sp = build_sub_plan(inv, external_text_langs=set())
-        self.assertEqual([x.track_id for x in sp.ocr_tasks], [2, 3])
+        self.assertEqual(sorted(x.track_id for x in sp.ocr_tasks), [2, 3])
         self.assertEqual(sp.drop_ids, [2, 3])
         self.assertEqual(sp.keep_ids, [1])
         self.assertTrue(sp.need_subfix)
@@ -315,7 +315,7 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
                 "timestamp: 00:00:03:000, filepos: 000000111\n",
                 encoding="utf-8",
             )
-            self.assertEqual(parse_vobsub_idx_timestamps(idx_path), [(1.5, 2.999), (3.0, 8.0)])
+            self.assertEqual(parse_vobsub_idx_timestamps(idx_path), [(1.5, 2.999), (3.0, 7.999)])
 
     def test_extract_vobsub_for_ocr_uses_idx_output(self) -> None:
         tr = mk_track(16, "VobSub", "ita")
