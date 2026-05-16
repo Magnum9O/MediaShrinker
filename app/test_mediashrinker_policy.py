@@ -143,6 +143,45 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
         self.assertEqual(eng.decision_ocr, "all")
         self.assertTrue(sp.need_subfix)
 
+    def test_got_style_vobsub_inventory_only_targets_eng_ita_for_ocr(self) -> None:
+        inv = SubtitleInventory(
+            text=[],
+            non_text=[
+                mk_track(7, "VobSub", "dan"),
+                mk_track(8, "VobSub", "dut"),
+                mk_track(9, "VobSub", "eng"),
+                mk_track(10, "VobSub", "eng"),
+                mk_track(11, "VobSub", "fin"),
+                mk_track(12, "VobSub", "fre"),
+                mk_track(13, "VobSub", "fre"),
+                mk_track(14, "VobSub", "ger"),
+                mk_track(15, "VobSub", "ger"),
+                mk_track(16, "VobSub", "ita"),
+                mk_track(17, "VobSub", "ita"),
+                mk_track(18, "VobSub", "nob"),
+                mk_track(19, "VobSub", "por"),
+                mk_track(20, "VobSub", "por"),
+                mk_track(21, "VobSub", "spa"),
+                mk_track(22, "VobSub", "spa"),
+                mk_track(23, "VobSub", "spa"),
+                mk_track(24, "VobSub", "swe"),
+            ],
+        )
+        sp = build_sub_plan(inv, external_text_langs=set())
+        self.assertEqual([x.track_id for x in sp.ocr_tasks], [9, 10, 16, 17])
+        self.assertEqual(sp.drop_ids, [9, 10, 16, 17])
+        self.assertEqual(
+            sp.keep_ids,
+            [7, 8, 11, 12, 13, 14, 15, 18, 19, 20, 21, 22, 23, 24],
+        )
+        eng = next(x for x in sp.audit if x.lang == "eng")
+        ita = next(x for x in sp.audit if x.lang == "ita")
+        spa = next(x for x in sp.audit if x.lang == "spa")
+        self.assertEqual(eng.decision_ocr, "all")
+        self.assertEqual(ita.decision_ocr, "all")
+        self.assertEqual(spa.decision_ocr, "none")
+        self.assertTrue(sp.need_subfix)
+
     def test_ambiguous_external_text_counts_and_drops_bitmap(self) -> None:
         inv = SubtitleInventory(
             text=[],
