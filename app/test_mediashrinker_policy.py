@@ -11,6 +11,7 @@ from mediashrinker import (
     build_sub_plan,
     detect_lang_from_text,
     detect_lang_from_subtitle_payload,
+    extract_pgs_for_pgsrip,
     infer_non_text_lang_via_probe_ocr,
     pick_transcode_cq,
 )
@@ -56,6 +57,7 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
         self.assertEqual(len(sp.ocr_tasks), 1)
         self.assertEqual(sp.ocr_tasks[0].track_id, 2)
         self.assertEqual(sp.ocr_tasks[0].lang, "eng")
+        self.assertTrue(sp.need_subfix)
 
     def test_ocr_when_only_non_text_target_exists(self) -> None:
         inv = SubtitleInventory(
@@ -64,6 +66,7 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
         )
         sp = build_sub_plan(inv, external_text_langs=set())
         self.assertEqual([t.track_id for t in sp.ocr_tasks], [10])
+        self.assertTrue(sp.need_subfix)
 
     def test_keep_non_text_if_only_other_language_text_exists(self) -> None:
         inv = SubtitleInventory(
@@ -109,6 +112,32 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
         sp = build_sub_plan(inv, external_text_langs=set())
         self.assertEqual(len(sp.ocr_tasks), 1)
         self.assertTrue(sp.ocr_tasks[0].forced)
+        self.assertTrue(sp.need_subfix)
+
+    def test_vobsub_target_lang_is_not_sent_to_ocr(self) -> None:
+        inv = SubtitleInventory(
+            text=[],
+            non_text=[mk_track(12, "VobSub", "ita")],
+        )
+        sp = build_sub_plan(inv, external_text_langs=set())
+        self.assertEqual(sp.ocr_tasks, [])
+        self.assertFalse(sp.need_subfix)
+        ita = next(x for x in sp.audit if x.lang == "ita")
+        self.assertEqual(ita.decision_ocr, "unsupported-vobsub")
+
+    def test_mixed_pgs_and_vobsub_only_pgs_is_ocr_task(self) -> None:
+        inv = SubtitleInventory(
+            text=[],
+            non_text=[
+                mk_track(13, "HDMV PGS", "eng"),
+                mk_track(14, "VobSub", "eng"),
+            ],
+        )
+        sp = build_sub_plan(inv, external_text_langs=set())
+        self.assertEqual([x.track_id for x in sp.ocr_tasks], [13])
+        eng = next(x for x in sp.audit if x.lang == "eng")
+        self.assertEqual(eng.decision_ocr, "pgs-only-vobsub-skipped")
+        self.assertTrue(sp.need_subfix)
 
     def test_ambiguous_external_text_counts_and_blocks_ocr(self) -> None:
         inv = SubtitleInventory(
@@ -118,6 +147,12 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
         sp = build_sub_plan(inv, external_text_langs={"und"})
         self.assertEqual(sp.ocr_tasks, [])
         self.assertEqual(sp.external_text_langs, ["und"])
+        self.assertTrue(sp.need_subfix)
+
+    def test_force_extract_subs_sets_need_subfix_even_without_ocr(self) -> None:
+        inv = SubtitleInventory(text=[], non_text=[])
+        sp = build_sub_plan(inv, external_text_langs=set(), force_extract_subs=True)
+        self.assertTrue(sp.need_subfix)
 
     def test_detect_lang_from_text_known_aliases_only(self) -> None:
         self.assertEqual(detect_lang_from_text("movie.italiano.srt"), "ita")
@@ -247,6 +282,18 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
             tessdata_prefix="C:/Temp",
         )
         self.assertIsNone(guessed)
+
+    def test_extract_pgs_for_pgsrip_rejects_non_pgs_codec(self) -> None:
+        tr = mk_track(15, "VobSub", "ita")
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(RuntimeError) as ctx:
+                extract_pgs_for_pgsrip(
+                    mkvextract="mkvextract",
+                    local_src=Path(td) / "in.mkv",
+                    tr=tr,
+                    out_dir=Path(td),
+                )
+        self.assertIn("pgsrip OCR supports PGS only", str(ctx.exception))
 
 
 if __name__ == "__main__":

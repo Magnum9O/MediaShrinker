@@ -1399,6 +1399,14 @@ class App:
             )
 
         cfg_pre = h(json.dumps(json.loads(run["config_json"] or "{}"), indent=2, ensure_ascii=False))
+        report_json_path = str(run["report_json_path"] or "").strip()
+        report_log_path = str(run["report_log_path"] or "").strip()
+        report_json_link = "/report_json?path=" + quote(report_json_path, safe="") if report_json_path else ""
+        report_log_tail_raw = tail_lines(Path(report_log_path), limit=220) if (report_log_path and Path(report_log_path).exists()) else []
+        report_log_tail = [
+            line for line in report_log_tail_raw
+            if ("copy-in: NAS -> SSD" not in line and "Copy SSD " not in line)
+        ][-140:]
         filter_query = urlencode(
             {
                 "id": run_id,
@@ -1418,22 +1426,39 @@ class App:
   </div>
   {nav_html()}
 </div>
+<style>
+.run-grid{{display:grid;grid-template-columns:1.2fr .8fr;gap:12px}}
+.run-meta{{display:grid;gap:8px;align-content:start}}
+.run-links{{display:flex;gap:8px;flex-wrap:wrap}}
+.run-links .navbtn{{padding:7px 12px;min-height:34px}}
+.table-wrap{{overflow:auto;border:1px solid var(--line);border-radius:14px;background:#fff}}
+.run-table{{min-width:1500px}}
+.run-table tbody tr:nth-child(odd){{background:rgba(75,141,255,.03)}}
+.run-table td{{white-space:nowrap}}
+.run-table td:first-child,.run-table td:last-child{{white-space:normal}}
+.small-inline{{font-size:12px;color:var(--muted)}}
+@media (max-width: 980px){{.run-grid{{grid-template-columns:1fr}}}}
+</style>
 <div class="card">
   <div class="chips">{chips}</div>
-  <p class="small muted mono">report_json: {h(run['report_json_path'])}<br>report_log: {h(run['report_log_path'])}</p>
 </div>
-<div class="grid">
+<div class="run-grid">
   <div class="card">
     <h2>Config snapshot</h2>
     <pre>{cfg_pre}</pre>
   </div>
-  <div class="card">
+  <div class="card run-meta">
     <h2>Legend</h2>
     <p class="small muted">
       <span class="mono">text/non-text</span>: aggregated subtitle languages before/after.<br>
       <span class="mono">ocr</span>: planned languages -> languages found after in the output file (OCR track tag).<br>
       Click a file for per-track details.
     </p>
+    <div class="run-links">
+      {f"<a class='navbtn' href='{report_json_link}' target='_blank'>Apri report JSON</a>" if report_json_link else ""}
+      {f"<span class='chip mono'>{h(report_log_path)}</span>" if report_log_path else "<span class='chip'>report log: n/d</span>"}
+    </div>
+    <div class="small-inline">Evita ridondanza: usa i filtri per arrivare subito ai file con errore/OCR/subfix.</div>
   </div>
 </div>
 <div class="card">
@@ -1466,7 +1491,8 @@ class App:
   <a class="mono" href="/run?{filter_query}">/run?{h(filter_query)}</a></p>
 </div>
 <div class="card">
-  <table>
+  <div class="table-wrap">
+  <table class="run-table">
     <thead>
       <tr>
         <th>file</th><th>action</th><th>flags</th><th>elapsed</th><th>duration</th><th>container</th><th>codec src->out</th><th>res</th><th>bitrate src->out</th>
@@ -1478,6 +1504,11 @@ class App:
       {"".join(rows) if rows else "<tr><td colspan='19'>No files in this run</td></tr>"}
     </tbody>
   </table>
+  </div>
+</div>
+<div class="card">
+  <h2>Report log tail</h2>
+  <pre>{h(chr(10).join(report_log_tail)) if report_log_tail else "No report log lines available."}</pre>
 </div>
 """
         return page(f"MediaShrinker Run {run_id}", body)

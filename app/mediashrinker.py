@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import itertools
 import json
 import os
 import queue
 import re
 import select
+import shlex
 import signal
 import shutil
 import subprocess
@@ -1010,7 +1012,7 @@ class LangAudit:
     keep_text_count: int
     non_text_count: int
     decision_drop_non_text: bool
-    decision_ocr: str  # "none" | "all"
+    decision_ocr: str  # "none" | "all" | "unsupported-vobsub" | "pgs-only-vobsub-skipped"
     ocr_track_ids: List[int]
 
 @dataclass
@@ -1022,7 +1024,12 @@ class SubPlan:
     external_text_langs: List[str]
     audit: List[LangAudit]
 
-def build_sub_plan(inv: SubtitleInventory, *, external_text_langs: Set[str]) -> SubPlan:
+def build_sub_plan(
+    inv: SubtitleInventory,
+    *,
+    external_text_langs: Set[str],
+    force_extract_subs: bool = False,
+) -> SubPlan:
     non_text_by_lang: Dict[str, List[SubtitleTrack]] = {}
     for t in inv.non_text:
         non_text_by_lang.setdefault(t.lang or "und", []).append(t)
@@ -1056,9 +1063,14 @@ def build_sub_plan(inv: SubtitleInventory, *, external_text_langs: Set[str]) -> 
         if lang in TARGET_OCR_LANGS and non_text_cnt > 0:
             has_text_this_lang = target_has_text.get(lang, False)
             if (not has_text_this_lang) and (not avoid_ocr_when_no_target_text):
-                decision_ocr = "all"
-                ocr_ids = [t.id for t in non_text_tracks]
-                for tr in non_text_tracks:
+                pgs_tracks = [t for t in non_text_tracks if is_pgs_codec(t.codec)]
+                unsupported_tracks = [t for t in non_text_tracks if not is_pgs_codec(t.codec)]
+                if pgs_tracks:
+                    decision_ocr = "pgs-only-vobsub-skipped" if unsupported_tracks else "all"
+                    ocr_ids = [t.id for t in pgs_tracks]
+                elif unsupported_tracks:
+                    decision_ocr = "unsupported-vobsub"
+                for tr in pgs_tracks:
                     ocr_tasks.append(OcrTask(tr.id, lang, tr.codec, tr.forced, tr.name))
 
         audit.append(
@@ -1073,8 +1085,9 @@ def build_sub_plan(inv: SubtitleInventory, *, external_text_langs: Set[str]) -> 
             )
         )
 
+    need_subfix = bool(external_text_langs) or bool(ocr_tasks) or bool(force_extract_subs)
     return SubPlan(
-        need_subfix=False,
+        need_subfix=need_subfix,
         drop_ids=[],
         keep_ids=[t.id for t in inv.text] + [t.id for t in inv.non_text],
         ocr_tasks=ocr_tasks,
@@ -1153,6 +1166,8 @@ def extract_pgs_for_pgsrip(mkvextract: str, local_src: Path, tr: SubtitleTrack, 
     Extract a PGS track to a filename that pgsrip will ACCEPT:
       <base>.t08.en.sup  (IETF language is the last token before .sup)
     """
+    if not is_pgs_codec(tr.codec):
+        raise RuntimeError(f"pgsrip OCR supports PGS only; track {tr.id} codec={tr.codec} is unsupported")
     base = local_src.stem
     lang_ietf = mkv_lang_to_ietf(tr.lang or "und")
     if lang_ietf == "und":
@@ -1192,6 +1207,7 @@ def pgsrip_sup_to_srt(sup_path: Path, *, pgsrip_bin: str, tessdata_prefix: str, 
     for lang in langs:
         cmd += ["-l", lang]
     cmd += [str(sup_path)]
+    cmd_str = " ".join(shlex.quote(x) for x in cmd)
     rc, out, err = run_cmd_capture(cmd, env=env)
     if rc != 0:
         raise RuntimeError(f"pgsrip failed rc={rc}: {(err or out).strip()}")
@@ -1204,7 +1220,16 @@ def pgsrip_sup_to_srt(sup_path: Path, *, pgsrip_bin: str, tessdata_prefix: str, 
     cand = list(sup_path.parent.glob(sup_path.stem + "*.srt")) + list(sup_path.parent.glob("*.srt"))
     cand = [p for p in cand if p.is_file()]
     if not cand:
-        raise RuntimeError("pgsrip ran but no .srt found")
+        def _clip(txt: str, max_len: int = 2000) -> str:
+            t = (txt or "").strip()
+            if len(t) <= max_len:
+                return t
+            return t[: max_len - 3] + "..."
+        dir_entry_names = sorted(p.name for p in itertools.islice(sup_path.parent.glob("*"), 80))
+        raise RuntimeError(
+            "pgsrip ran but no .srt found; "
+            f"cmd={cmd_str}; stdout={_clip(out)}; stderr={_clip(err)}; dir_files={dir_entry_names}"
+        )
     srt = max(cand, key=lambda p: p.stat().st_mtime)
     if srt.stat().st_size == 0:
         raise RuntimeError("pgsrip produced an empty .srt")
@@ -2314,11 +2339,13 @@ def main() -> int:
                 # explicit additive subtitle mode enables that behavior.
                 if not a.should_transcode:
                     inv = read_subtitle_inventory(mkvmerge, p, mkvextract=mkvextract)
-                    external_langs = find_external_text_langs(p)
-                    sp = build_sub_plan(inv, external_text_langs=external_langs)
-                    # need_subfix can be suggested by the sub-plan, but allow forcing extraction/OCR
-                    # even when the video itself is already HEVC.
-                    need_subfix = sp.need_subfix or (getattr(args, 'force_extract_subs', False) and (len(sp.ocr_tasks) > 0 or len(inv.non_text) > 0))
+                    external_langs = find_external_text_langs(p) if add_external_text_subs else set()
+                    sp = build_sub_plan(
+                        inv,
+                        external_text_langs=external_langs,
+                        force_extract_subs=getattr(args, "force_extract_subs", False),
+                    )
+                    need_subfix = sp.need_subfix
                     subtitle_plan_dict = {"drop_ids": sp.drop_ids, "keep_ids": sp.keep_ids}
                     audit_dicts = [asdict(x) for x in sp.audit]
                     ocr_task_dicts = [asdict(x) for x in sp.ocr_tasks]
@@ -2392,10 +2419,13 @@ def main() -> int:
                 ocr_task_dicts: List[Dict[str, Any]] = []
 
                 inv = read_subtitle_inventory(mkvmerge, p, mkvextract=mkvextract)
-                external_langs = find_external_text_langs(p)
-                sp = build_sub_plan(inv, external_text_langs=external_langs)
-                # allow forcing extraction/OCR even when the video itself is OK
-                need_subfix = sp.need_subfix or (getattr(args, 'force_extract_subs', False) and (len(sp.ocr_tasks) > 0 or len(inv.non_text) > 0))
+                external_langs = find_external_text_langs(p) if add_external_text_subs else set()
+                sp = build_sub_plan(
+                    inv,
+                    external_text_langs=external_langs,
+                    force_extract_subs=getattr(args, "force_extract_subs", False),
+                )
+                need_subfix = sp.need_subfix
                 subtitle_plan_dict = {"drop_ids": sp.drop_ids, "keep_ids": sp.keep_ids}
                 audit_dicts = [asdict(x) for x in sp.audit]
                 ocr_task_dicts = [asdict(x) for x in sp.ocr_tasks]
@@ -2505,7 +2535,11 @@ def main() -> int:
         return 130
 
     if not auto_yes:
-        if not prompt_yes_no(f"Confermi elaborazione di {len(to_process)} file (copy->SSD, OCR/add subs se utile, transcode se serve, swap atomico)?", default_yes=True):
+        if not prompt_yes_no(
+            f"Confermi elaborazione di {len(to_process)} file "
+            "(staging su SSD solo per file processati, OCR/add subs se utile, transcode se serve, swap atomico)?",
+            default_yes=True,
+        ):
             log("Aborted by user.")
             if save_config:
                 save_cfg(DEFAULT_CFG_PATH, cfg)
@@ -2596,8 +2630,12 @@ def main() -> int:
                         tr.lang = guessed_lang
                         log(f"      [LANG] inferred non-text track t{tr.id:02d} -> {guessed_lang} (probe OCR)")
 
-            ext_langs = find_external_text_langs(nas_src)
-            subplan = build_sub_plan(inv_local, external_text_langs=ext_langs)
+            ext_langs = find_external_text_langs(nas_src) if add_external_text_subs else set()
+            subplan = build_sub_plan(
+                inv_local,
+                external_text_langs=ext_langs,
+                force_extract_subs=getattr(args, "force_extract_subs", False),
+            )
             it.need_transcode = bool(a_for_src.should_transcode)
             it.need_subfix = bool(subplan.need_subfix)
             it.reasons_video = a_for_src.reasons[:]
