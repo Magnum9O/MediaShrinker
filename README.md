@@ -8,8 +8,8 @@ Pipeline Docker per librerie video (Plex / Jellyfin / Emby) che riduce l'uso di 
 **Cosa fa:**
 - Converte video non-HEVC in HEVC con `ffmpeg` (GPU NVIDIA / Intel-AMD / CPU).
 - Quattro profili di codifica: `space_saver`, `balanced` *(default)*, `quality`, `hq`.
-- Mantiene tutte le tracce sottotitoli (PGS, VobSub, ASS, SRT …).
-- OCR su sottotitoli immagine (PGS/VobSub) → testo ricercabile, via `pgsrip` + Tesseract.
+- Mantiene le tracce testuali e sostituisce le tracce bitmap supportate (PGS/VobSub) con `.srt` per evitare transcoding dei sottotitoli.
+- OCR su sottotitoli immagine (PGS/VobSub) → testo ricercabile, via `pgsrip` + Tesseract / ffmpeg.
 - Aggiunge sottotitoli `.srt`/`.ass` esterni trovati accanto al file sorgente.
 - Skippa i file se l'output è più grande della sorgente (growth guard).
 - Web UI: dashboard live, control room, cronologia, scheduler cron, dettagli per file.

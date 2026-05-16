@@ -874,6 +874,18 @@ def is_pgs_codec(codec: str) -> bool:
     c = (codec or "").lower()
     return ("hdmv_pgs_subtitle" in c) or ("pgssub" in c) or ("hdmv pgs" in c) or ("pgs" in c)
 
+def is_vobsub_codec(codec: str) -> bool:
+    c = (codec or "").lower()
+    return (
+        ("vobsub" in c)
+        or ("dvd_subtitle" in c)
+        or ("dvd subtitle" in c)
+        or ("bmp" in c)
+    )
+
+def is_supported_bitmap_sub_codec(codec: str) -> bool:
+    return is_pgs_codec(codec) or is_vobsub_codec(codec)
+
 def is_text_sub_codec(codec: str) -> bool:
     c = (codec or "").lower()
     return any(
@@ -1012,7 +1024,7 @@ class LangAudit:
     keep_text_count: int
     non_text_count: int
     decision_drop_non_text: bool
-    decision_ocr: str  # "none" | "all" | "unsupported-vobsub" | "pgs-only-vobsub-skipped"
+    decision_ocr: str  # "none" | "all" | "drop-redundant-bitmap" | "unsupported-bitmap"
     ocr_track_ids: List[int]
 
 @dataclass
@@ -1030,6 +1042,7 @@ def build_sub_plan(
     external_text_langs: Set[str],
     force_extract_subs: bool = False,
 ) -> SubPlan:
+    drop_ids: List[int] = []
     non_text_by_lang: Dict[str, List[SubtitleTrack]] = {}
     for t in inv.non_text:
         non_text_by_lang.setdefault(t.lang or "und", []).append(t)
@@ -1042,9 +1055,6 @@ def build_sub_plan(
     ext_und = "und" in external_text_langs
     target_has_ext_text = {lang: (lang in external_text_langs) or ext_und for lang in TARGET_OCR_LANGS}
     target_has_text = {lang: (target_has_internal_text[lang] or target_has_ext_text[lang]) for lang in TARGET_OCR_LANGS}
-    any_target_text = any(target_has_text.values())
-    any_text_any_lang = (len(inv.text) > 0) or (len(external_text_langs) > 0)
-    avoid_ocr_when_no_target_text = (not any_target_text) and any_text_any_lang
 
     all_langs = set(non_text_by_lang.keys()) | set(keep_text_by_lang.keys()) | set(external_text_langs) | TARGET_OCR_LANGS
     audit: List[LangAudit] = []
@@ -1062,16 +1072,21 @@ def build_sub_plan(
 
         if lang in TARGET_OCR_LANGS and non_text_cnt > 0:
             has_text_this_lang = target_has_text.get(lang, False)
-            if (not has_text_this_lang) and (not avoid_ocr_when_no_target_text):
-                pgs_tracks = [t for t in non_text_tracks if is_pgs_codec(t.codec)]
-                unsupported_tracks = [t for t in non_text_tracks if not is_pgs_codec(t.codec)]
-                if pgs_tracks:
-                    decision_ocr = "pgs-only-vobsub-skipped" if unsupported_tracks else "all"
-                    ocr_ids = [t.id for t in pgs_tracks]
-                elif unsupported_tracks:
-                    decision_ocr = "unsupported-vobsub"
-                for tr in pgs_tracks:
+            supported_tracks = [t for t in non_text_tracks if is_supported_bitmap_sub_codec(t.codec)]
+            unsupported_tracks = [t for t in non_text_tracks if not is_supported_bitmap_sub_codec(t.codec)]
+            if has_text_this_lang and supported_tracks:
+                decision_drop_pgs = True
+                decision_ocr = "drop-redundant-bitmap"
+                ocr_ids = [t.id for t in supported_tracks]
+                drop_ids.extend(ocr_ids)
+            elif supported_tracks:
+                decision_ocr = "all"
+                ocr_ids = [t.id for t in supported_tracks]
+                drop_ids.extend(ocr_ids)
+                for tr in supported_tracks:
                     ocr_tasks.append(OcrTask(tr.id, lang, tr.codec, tr.forced, tr.name))
+            elif unsupported_tracks:
+                decision_ocr = "unsupported-bitmap"
 
         audit.append(
             LangAudit(
@@ -1085,11 +1100,12 @@ def build_sub_plan(
             )
         )
 
-    need_subfix = bool(external_text_langs) or bool(ocr_tasks) or bool(force_extract_subs)
+    drop_id_set = set(drop_ids)
+    need_subfix = bool(external_text_langs) or bool(ocr_tasks) or bool(drop_ids) or bool(force_extract_subs)
     return SubPlan(
         need_subfix=need_subfix,
-        drop_ids=[],
-        keep_ids=[t.id for t in inv.text] + [t.id for t in inv.non_text],
+        drop_ids=sorted(drop_id_set),
+        keep_ids=[t.id for t in inv.text] + [t.id for t in inv.non_text if t.id not in drop_id_set],
         ocr_tasks=ocr_tasks,
         external_text_langs=sorted(external_text_langs),
         audit=audit,
@@ -1182,6 +1198,24 @@ def extract_pgs_for_pgsrip(mkvextract: str, local_src: Path, tr: SubtitleTrack, 
         raise RuntimeError(f"mkvextract failed for track {tr.id}: {err.strip()}")
     return outp
 
+def extract_vobsub_for_ocr(mkvextract: str, local_src: Path, tr: SubtitleTrack, out_dir: Path) -> Path:
+    if not is_vobsub_codec(tr.codec):
+        raise RuntimeError(f"bitmap OCR via ffmpeg/tesseract supports VobSub/BMP only; track {tr.id} codec={tr.codec} is unsupported")
+    base = local_src.stem
+    lang_ietf = mkv_lang_to_ietf(tr.lang or "und")
+    if lang_ietf == "und":
+        raise RuntimeError(f"unsupported OCR lang for track {tr.id}: {tr.lang}")
+    outp = out_dir / f"{base}.t{tr.id:02d}.{lang_ietf}.idx"
+    if outp.exists():
+        outp = out_dir / f"{base}.t{tr.id:02d}.{lang_ietf}.{int(time.time())}.idx"
+
+    rc, _, err = run_cmd_capture([mkvextract, str(local_src), "tracks", f"{tr.id}:{outp}"])
+    if rc != 0:
+        raise RuntimeError(f"mkvextract failed for VobSub track {tr.id}: {err.strip()}")
+    if not outp.exists():
+        raise RuntimeError(f"mkvextract did not create VobSub index for track {tr.id}: {outp}")
+    return outp
+
 # -----------------------
 # OCR via pgsrip
 # -----------------------
@@ -1200,7 +1234,7 @@ def pgsrip_sup_to_srt(sup_path: Path, *, pgsrip_bin: str, tessdata_prefix: str, 
         if tess_bin.exists():
             env["PATH"] = str(tess_bin) + os.pathsep + env.get("PATH", "")
 
-    langs = [x for x in ocr_langs_ietf if x in ("it", "en")]
+    langs = [x for x in ocr_langs_ietf if x and x != "und"]
     if not langs:
         raise RuntimeError("no supported OCR language selected for pgsrip")
     cmd: List[str] = [pgsrip_bin]
@@ -1234,6 +1268,151 @@ def pgsrip_sup_to_srt(sup_path: Path, *, pgsrip_bin: str, tessdata_prefix: str, 
     if srt.stat().st_size == 0:
         raise RuntimeError("pgsrip produced an empty .srt")
     return srt
+
+def mkv_lang_to_tesseract_lang(lang3: str) -> str:
+    l = normalize_lang(lang3)
+    if l == "eng":
+        return "eng"
+    if l == "ita":
+        return "ita"
+    if l == "spa":
+        return "spa"
+    if l == "fra":
+        return "fra"
+    if l == "deu":
+        return "deu"
+    if l == "por":
+        return "por"
+    return "und"
+
+def _parse_vobsub_timestamp(raw: str) -> float:
+    m = re.fullmatch(r"(\d+):(\d+):(\d+):(\d+)", raw.strip())
+    if not m:
+        raise RuntimeError(f"invalid VobSub timestamp: {raw}")
+    hh, mm, ss, ms = (int(x) for x in m.groups())
+    return float(hh * 3600 + mm * 60 + ss) + (ms / 1000.0)
+
+def parse_vobsub_idx_timestamps(idx_path: Path) -> List[Tuple[float, float]]:
+    starts: List[float] = []
+    for line in idx_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        m = re.search(r"timestamp:\s*([0-9:]+)", line, re.IGNORECASE)
+        if not m:
+            continue
+        starts.append(_parse_vobsub_timestamp(m.group(1)))
+    if not starts:
+        raise RuntimeError(f"no VobSub timestamps found in {idx_path.name}")
+    windows: List[Tuple[float, float]] = []
+    for i, start in enumerate(starts):
+        next_start = starts[i + 1] if i + 1 < len(starts) else (start + 5.0)
+        end = max(start + 0.2, next_start - 0.001)
+        windows.append((start, end))
+    return windows
+
+def render_vobsub_event_image(ffmpeg_bin: str, idx_path: Path, out_png: Path, *, at_sec: float) -> None:
+    overlay = "[0:v][1:s:0]overlay=shortest=1"
+    cmd = [
+        ffmpeg_bin,
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=black:s=1920x1080:r=1:d=1",
+        "-itsoffset",
+        f"-{max(0.0, at_sec):.3f}",
+        "-i",
+        str(idx_path),
+        "-frames:v",
+        "1",
+        "-filter_complex",
+        overlay,
+        str(out_png),
+    ]
+    rc, out, err = run_cmd_capture(cmd)
+    if rc != 0:
+        raise RuntimeError(f"ffmpeg render failed rc={rc}: {(err or out).strip()}")
+    if not out_png.exists() or out_png.stat().st_size == 0:
+        raise RuntimeError(f"ffmpeg did not render subtitle bitmap image for {idx_path.name}")
+
+def ocr_bitmap_image_to_text(image_path: Path, *, tessdata_prefix: str, ocr_langs: List[str]) -> str:
+    try:
+        from PIL import Image
+        import pytesseract
+    except Exception as exc:
+        raise RuntimeError(f"bitmap OCR dependencies unavailable: {exc}") from exc
+
+    langs = [x for x in ocr_langs if x and x != "und"]
+    if not langs:
+        raise RuntimeError("no supported OCR language selected for bitmap OCR")
+
+    os.environ["TESSDATA_PREFIX"] = tessdata_prefix
+    with Image.open(image_path) as img:
+        gray = img.convert("L")
+        bbox = gray.point(lambda p: 255 if p > 8 else 0).getbbox()
+        if bbox:
+            gray = gray.crop(bbox)
+        text = pytesseract.image_to_string(gray, lang="+".join(langs), config="--psm 6").strip()
+    text = re.sub(r"\r\n?", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+def _fmt_srt_timestamp(sec: float) -> str:
+    total_ms = max(0, int(round(sec * 1000.0)))
+    hh = total_ms // 3_600_000
+    rem = total_ms % 3_600_000
+    mm = rem // 60_000
+    rem %= 60_000
+    ss = rem // 1000
+    ms = rem % 1000
+    return f"{hh:02d}:{mm:02d}:{ss:02d},{ms:03d}"
+
+def vobsub_idx_to_srt(
+    ffmpeg_bin: str,
+    idx_path: Path,
+    *,
+    tessdata_prefix: str,
+    ocr_langs: List[str],
+) -> Path:
+    td = tempfile.mkdtemp(prefix="mediashrinker-vobsub-ocr-")
+    srt_path = idx_path.with_suffix(".srt")
+    try:
+        entries: List[str] = []
+        last_text = ""
+        last_window: Optional[Tuple[float, float]] = None
+        for seq, (start_sec, end_sec) in enumerate(parse_vobsub_idx_timestamps(idx_path), start=1):
+            png_path = Path(td) / f"{idx_path.stem}.{seq:04d}.png"
+            render_vobsub_event_image(ffmpeg_bin, idx_path, png_path, at_sec=start_sec)
+            text = ocr_bitmap_image_to_text(
+                png_path,
+                tessdata_prefix=tessdata_prefix,
+                ocr_langs=ocr_langs,
+            )
+            if not text:
+                continue
+            if last_window and text == last_text:
+                prev_start, _ = last_window
+                last_window = (prev_start, end_sec)
+                entries[-1] = (
+                    f"{len(entries)}\n"
+                    f"{_fmt_srt_timestamp(prev_start)} --> {_fmt_srt_timestamp(end_sec)}\n"
+                    f"{text}\n"
+                )
+                continue
+            entries.append(
+                f"{len(entries) + 1}\n"
+                f"{_fmt_srt_timestamp(start_sec)} --> {_fmt_srt_timestamp(end_sec)}\n"
+                f"{text}\n"
+            )
+            last_text = text
+            last_window = (start_sec, end_sec)
+        if not entries:
+            raise RuntimeError(f"bitmap OCR produced no subtitle text for {idx_path.name}")
+        srt_path.write_text("\n".join(entries).strip() + "\n", encoding="utf-8")
+        return srt_path
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
 
 def infer_non_text_lang_via_probe_ocr(
     *,
@@ -2249,7 +2428,7 @@ def main() -> int:
     log(f"encoder={encoder} mode=size-efficient standards=movie/series multipass={not no_multipass}")
     log(f"jobs={jobs}")
     log(f"rules: bitrate>= {bitrate_threshold_mbps} Mbps, 4k_bitrate>= {bitrate_4k_mbps} Mbps")
-    log(f"subtitle policy: Plex/space-first; keep original subtitles, never drop PGS/VobSub just for compatibility, OCR only during processed files when missing target text can be added. target_langs={sorted(TARGET_OCR_LANGS)}")
+    log(f"subtitle policy: direct-play first; convert supported bitmap subtitles (PGS/VobSub) to text and drop replaced bitmap tracks from final remux. target_langs={sorted(TARGET_OCR_LANGS)}")
     log(f"extract_pgs={extract_pgs} add_external_text_subs={add_external_text_subs} ocr_engine={ocr_engine} ocr_target_langs={ocr_target_langs} pgsrip_bin={pgsrip_bin} tessdata_prefix={tessdata_prefix}")
     log("pgsrip policy: OCR language is dynamic per track (ita->it, eng->en). external text subtitles are muxed only when the file is already being processed.")
     if ocr_engine == "none":
@@ -2657,6 +2836,12 @@ def main() -> int:
                 if external_tracks:
                     add_srt.extend(external_tracks)
                     log(f"      external text subtitles queued for mux: {len(external_tracks)}")
+            if subplan.ocr_tasks and not extract_pgs:
+                set_slot_status("FAILED (bitmap OCR disabled)")
+                raise RuntimeError("bitmap OCR required by subtitle plan but extract_pgs=false")
+            if subplan.ocr_tasks and ocr_engine == "none":
+                set_slot_status("FAILED (OCR disabled)")
+                raise RuntimeError("bitmap OCR required by subtitle plan but ocr_engine=none")
             if extract_pgs and ocr_engine == "pgsrip" and subplan.ocr_tasks:
                 if not Path(pgsrip_bin).exists() and shutil.which(pgsrip_bin) is None:
                     set_slot_status("FAILED (pgsrip missing)")
@@ -2668,24 +2853,33 @@ def main() -> int:
                         continue
                     try:
                         set_slot_status(f"OCR t{task.track_id:02d} {task.lang}")
-                        sup = extract_pgs_for_pgsrip(mkvextract, sub_src, tr, job_dir)
-                        lang_ietf = mkv_lang_to_ietf(task.lang)
-                        log(f"[OCR] pgsrip sup={sup.name} codec={task.codec} lang={task.lang} forced={task.forced}")
-                        srt = pgsrip_sup_to_srt(
-                            sup,
-                            pgsrip_bin=pgsrip_bin,
-                            tessdata_prefix=tessdata_prefix,
-                            ocr_langs_ietf=[lang_ietf],
-                        )
+                        if is_pgs_codec(task.codec):
+                            sup = extract_pgs_for_pgsrip(mkvextract, sub_src, tr, job_dir)
+                            lang_ietf = mkv_lang_to_ietf(task.lang)
+                            log(f"[OCR] pgsrip sup={sup.name} codec={task.codec} lang={task.lang} forced={task.forced}")
+                            srt = pgsrip_sup_to_srt(
+                                sup,
+                                pgsrip_bin=pgsrip_bin,
+                                tessdata_prefix=tessdata_prefix,
+                                ocr_langs_ietf=[lang_ietf],
+                            )
+                        elif is_vobsub_codec(task.codec):
+                            idx_path = extract_vobsub_for_ocr(mkvextract, sub_src, tr, job_dir)
+                            log(f"[OCR] ffmpeg+tesseract idx={idx_path.name} codec={task.codec} lang={task.lang} forced={task.forced}")
+                            srt = vobsub_idx_to_srt(
+                                ffmpeg_bin,
+                                idx_path,
+                                tessdata_prefix=tessdata_prefix,
+                                ocr_langs=[mkv_lang_to_tesseract_lang(task.lang)],
+                            )
+                        else:
+                            raise RuntimeError(f"unsupported bitmap OCR codec for track {task.track_id}: {task.codec}")
                         nm0 = (tr.name or "").strip() or "OCR"
                         nm = f"{nm0} (Forced OCR)" if task.forced else f"{nm0} (OCR)"
                         add_srt.append((srt, task.lang, nm, bool(task.forced), False))
                     except Exception as ocr_err:
-                        log(f"[WRN] OCR failed track={task.track_id} lang={task.lang}: {ocr_err} (continuo senza questa lingua)")
-            elif (not extract_pgs) and subplan.ocr_tasks:
-                log("[WRN] OCR tasks exist but extract_pgs=false -> skipping extract+OCR.")
-            elif ocr_engine == "none" and subplan.ocr_tasks:
-                log("[WRN] OCR tasks exist but ocr_engine=none -> skipping OCR.")
+                        set_slot_status(f"FAILED (OCR t{task.track_id:02d})")
+                        raise RuntimeError(f"OCR failed track={task.track_id} lang={task.lang}: {ocr_err}") from ocr_err
             else:
                 log("      OCR: no extraction needed.")
 
