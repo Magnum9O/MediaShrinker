@@ -722,9 +722,14 @@ LANG_ALIASES = {
 }
 TARGET_OCR_LANGS = {"ita", "eng"}
 LANG_DETECT_SAMPLE_BYTES = 12 * 1024
+# Bitmap subtitle OCR needs a minimum dwell time, a tiny no-overlap gap, and a fallback
+# duration for the last cue when the source index has no explicit end timestamp.
 MIN_BITMAP_SUB_DISPLAY_SEC = 0.2
 SUBTITLE_BOUNDARY_EPSILON_SEC = 0.001
+# Very low threshold on purpose: subtitle glyphs are bright on dark/transparent backgrounds
+# and we want to keep faint antialiased edges inside the OCR crop box.
 OCR_BBOX_THRESHOLD = 8
+DEFAULT_LAST_BITMAP_SUB_DURATION_SEC = 5.0
 ITA_HINT_WORDS = {
     "che", "non", "per", "con", "sono", "come", "questo", "questa", "della",
     "delle", "degli", "allora", "anche", "perche", "perché", "quindi", "grazie",
@@ -1307,7 +1312,7 @@ def parse_vobsub_idx_timestamps(idx_path: Path) -> List[Tuple[float, float]]:
         raise RuntimeError(f"no VobSub timestamps found in {idx_path.name}")
     windows: List[Tuple[float, float]] = []
     for i, start in enumerate(starts):
-        next_start = starts[i + 1] if i + 1 < len(starts) else (start + 5.0)
+        next_start = starts[i + 1] if i + 1 < len(starts) else (start + DEFAULT_LAST_BITMAP_SUB_DURATION_SEC)
         # Keep each OCR sample visible for at least a short interval and avoid overlapping
         # the next subtitle window when two cues are adjacent.
         end = max(start + MIN_BITMAP_SUB_DISPLAY_SEC, next_start - SUBTITLE_BOUNDARY_EPSILON_SEC)
@@ -1326,8 +1331,8 @@ def render_vobsub_event_image(ffmpeg_bin: str, idx_path: Path, out_png: Path, *,
         "lavfi",
         "-i",
         "color=c=black:s=1920x1080:r=1:d=1",
-        "-itsoffset",
-        f"-{max(0.0, at_sec):.3f}",
+        "-ss",
+        f"{max(0.0, at_sec):.3f}",
         "-i",
         str(idx_path),
         "-frames:v",
@@ -1386,7 +1391,7 @@ def vobsub_idx_to_srt(
     td = tempfile.mkdtemp(prefix="mediashrinker-vobsub-ocr-")
     srt_path = idx_path.with_suffix(".srt")
     try:
-        entries: List[str] = []
+        entries: List[Tuple[float, float, str]] = []
         last_text = ""
         last_window: Optional[Tuple[float, float]] = None
         for seq, (start_sec, end_sec) in enumerate(parse_vobsub_idx_timestamps(idx_path), start=1):
@@ -1401,24 +1406,19 @@ def vobsub_idx_to_srt(
                 continue
             if last_window and text == last_text:
                 prev_start, _ = last_window
-                prev_index = len(entries)
                 last_window = (prev_start, end_sec)
-                entries[-1] = (
-                    f"{prev_index}\n"
-                    f"{_fmt_srt_timestamp(prev_start)} --> {_fmt_srt_timestamp(end_sec)}\n"
-                    f"{text}\n"
-                )
+                entries[-1] = (prev_start, end_sec, text)
                 continue
-            entries.append(
-                f"{len(entries) + 1}\n"
-                f"{_fmt_srt_timestamp(start_sec)} --> {_fmt_srt_timestamp(end_sec)}\n"
-                f"{text}\n"
-            )
+            entries.append((start_sec, end_sec, text))
             last_text = text
             last_window = (start_sec, end_sec)
         if not entries:
             raise RuntimeError(f"bitmap OCR produced no subtitle text for {idx_path.name}")
-        srt_path.write_text("\n".join(entries).strip() + "\n", encoding="utf-8")
+        lines = [
+            f"{i}\n{_fmt_srt_timestamp(start_sec)} --> {_fmt_srt_timestamp(end_sec)}\n{text}\n"
+            for i, (start_sec, end_sec, text) in enumerate(entries, start=1)
+        ]
+        srt_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
         return srt_path
     finally:
         shutil.rmtree(td, ignore_errors=True)
