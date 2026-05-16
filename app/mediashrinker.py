@@ -1225,10 +1225,10 @@ def pgsrip_sup_to_srt(sup_path: Path, *, pgsrip_bin: str, tessdata_prefix: str, 
             if len(t) <= max_len:
                 return t
             return t[: max_len - 3] + "..."
-        dir_entries = sorted(p.name for p in itertools.islice(sup_path.parent.glob("*"), 80))
+        dir_entry_names = sorted(p.name for p in itertools.islice(sup_path.parent.glob("*"), 80))
         raise RuntimeError(
             "pgsrip ran but no .srt found; "
-            f"cmd={cmd_str}; stdout={_clip(out)}; stderr={_clip(err)}; dir_files={dir_entries}"
+            f"cmd={cmd_str}; stdout={_clip(out)}; stderr={_clip(err)}; dir_files={dir_entry_names}"
         )
     srt = max(cand, key=lambda p: p.stat().st_mtime)
     if srt.stat().st_size == 0:
