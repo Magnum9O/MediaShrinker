@@ -15,8 +15,11 @@ from mediashrinker import (
     extract_vobsub_for_ocr,
     infer_non_text_lang_via_probe_ocr,
     is_supported_bitmap_sub_codec,
+    iter_bitmap_ocr_sample_times,
     parse_vobsub_idx_timestamps,
     pick_transcode_cq,
+    score_ocr_text,
+    vobsub_idx_to_srt,
 )
 
 
@@ -363,6 +366,17 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
             self.assertAlmostEqual(windows[1][0], 3.0)
             self.assertAlmostEqual(windows[1][1], 7.999)
 
+    def test_iter_bitmap_ocr_sample_times_spans_window(self) -> None:
+        samples = iter_bitmap_ocr_sample_times(10.0, 12.0)
+        self.assertGreaterEqual(len(samples), 3)
+        self.assertGreater(samples[0], 10.0)
+        self.assertLess(samples[-1], 12.0)
+        self.assertEqual(samples, sorted(samples))
+
+    def test_score_ocr_text_prefers_longer_real_text(self) -> None:
+        self.assertGreater(score_ocr_text("Hello there"), score_ocr_text("Hi"))
+        self.assertEqual(score_ocr_text(" \n "), 0)
+
     def test_extract_vobsub_for_ocr_uses_idx_output(self) -> None:
         tr = mk_track(16, "VobSub", "ita")
 
@@ -382,6 +396,40 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
                 )
             self.assertEqual(outp.suffix, ".idx")
             self.assertTrue(outp.exists())
+
+    def test_vobsub_idx_to_srt_uses_best_non_empty_sample_in_window(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            idx_path = td_path / "track.idx"
+            idx_path.write_text(
+                "# VobSub index file\n"
+                "timestamp: 00:00:10:000, filepos: 000000000\n",
+                encoding="utf-8",
+            )
+
+            def fake_render(ffmpeg_bin, idx_path_arg, out_png, *, at_sec):
+                out_png.write_text(f"{at_sec:.3f}", encoding="utf-8")
+
+            def fake_ocr(image_path, *, tessdata_prefix, ocr_langs):
+                sample_sec = float(image_path.read_text(encoding="utf-8"))
+                if sample_sec < 10.2:
+                    return ""
+                if sample_sec < 10.5:
+                    return "Hi"
+                return "This is the subtitle text"
+
+            with patch("mediashrinker.render_vobsub_event_image", side_effect=fake_render), \
+                 patch("mediashrinker.ocr_bitmap_image_to_text", side_effect=fake_ocr):
+                srt = vobsub_idx_to_srt(
+                    ffmpeg_bin="ffmpeg",
+                    idx_path=idx_path,
+                    tessdata_prefix=td,
+                    ocr_langs=["eng"],
+                )
+
+            content = srt.read_text(encoding="utf-8")
+            self.assertIn("This is the subtitle text", content)
+            self.assertNotIn("\nHi\n", content)
 
 
 if __name__ == "__main__":

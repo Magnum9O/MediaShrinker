@@ -1347,6 +1347,34 @@ def render_vobsub_event_image(ffmpeg_bin: str, idx_path: Path, out_png: Path, *,
     if not out_png.exists() or out_png.stat().st_size == 0:
         raise RuntimeError(f"ffmpeg did not render subtitle bitmap image for {idx_path.name}")
 
+def iter_bitmap_ocr_sample_times(start_sec: float, end_sec: float) -> List[float]:
+    if end_sec <= start_sec:
+        return [start_sec]
+    span = max(0.0, end_sec - start_sec)
+    # VobSub cues are often not stably visible right at the first timestamp; sample a few
+    # points across the cue window and keep the best OCR result.
+    points = [
+        start_sec + min(0.10, span * 0.20),
+        start_sec + min(0.35, span * 0.45),
+        start_sec + (span * 0.50),
+        max(start_sec, end_sec - min(0.10, span * 0.20)),
+    ]
+    out: List[float] = []
+    for pt in points:
+        clamped = min(max(start_sec, pt), end_sec)
+        if out and abs(out[-1] - clamped) < 0.001:
+            continue
+        out.append(clamped)
+    return out or [start_sec]
+
+def score_ocr_text(text: str) -> int:
+    cleaned = re.sub(r"\s+", "", (text or ""))
+    if not cleaned:
+        return 0
+    alpha = sum(1 for ch in cleaned if ch.isalpha())
+    digits = sum(1 for ch in cleaned if ch.isdigit())
+    return len(cleaned) + alpha * 2 + digits
+
 def ocr_bitmap_image_to_text(image_path: Path, *, tessdata_prefix: str, ocr_langs: List[str]) -> str:
     try:
         from PIL import Image
@@ -1398,13 +1426,21 @@ def vobsub_idx_to_srt(
         last_text = ""
         last_window: Optional[Tuple[float, float]] = None
         for seq, (start_sec, end_sec) in enumerate(parse_vobsub_idx_timestamps(idx_path), start=1):
-            png_path = Path(td) / f"{idx_path.stem}.{seq:04d}.png"
-            render_vobsub_event_image(ffmpeg_bin, idx_path, png_path, at_sec=start_sec)
-            text = ocr_bitmap_image_to_text(
-                png_path,
-                tessdata_prefix=tessdata_prefix,
-                ocr_langs=ocr_langs,
-            )
+            best_text = ""
+            best_score = 0
+            for sample_idx, sample_sec in enumerate(iter_bitmap_ocr_sample_times(start_sec, end_sec), start=1):
+                png_path = Path(td) / f"{idx_path.stem}.{seq:04d}.{sample_idx:02d}.png"
+                render_vobsub_event_image(ffmpeg_bin, idx_path, png_path, at_sec=sample_sec)
+                text = ocr_bitmap_image_to_text(
+                    png_path,
+                    tessdata_prefix=tessdata_prefix,
+                    ocr_langs=ocr_langs,
+                )
+                text_score = score_ocr_text(text)
+                if text_score > best_score:
+                    best_text = text
+                    best_score = text_score
+            text = best_text.strip()
             if not text:
                 continue
             if last_window and text == last_text:
