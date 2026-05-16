@@ -12,7 +12,10 @@ from mediashrinker import (
     detect_lang_from_text,
     detect_lang_from_subtitle_payload,
     extract_pgs_for_pgsrip,
+    extract_vobsub_for_ocr,
     infer_non_text_lang_via_probe_ocr,
+    is_supported_bitmap_sub_codec,
+    parse_vobsub_idx_timestamps,
     pick_transcode_cq,
 )
 
@@ -37,15 +40,15 @@ def mk_track(
 
 
 class JellyfixSubtitlePolicyTests(unittest.TestCase):
-    def test_keep_non_text_when_internal_text_exists_same_lang(self) -> None:
+    def test_drop_bitmap_when_internal_text_exists_same_lang(self) -> None:
         inv = SubtitleInventory(
             text=[mk_track(1, "SubRip/SRT", "ita")],
             non_text=[mk_track(2, "HDMV PGS", "ita")],
         )
         sp = build_sub_plan(inv, external_text_langs=set())
-        self.assertEqual(sp.keep_ids, [1, 2])
-        self.assertEqual(sp.drop_ids, [])
-        self.assertFalse(sp.need_subfix)
+        self.assertEqual(sp.keep_ids, [1])
+        self.assertEqual(sp.drop_ids, [2])
+        self.assertTrue(sp.need_subfix)
         self.assertEqual(sp.ocr_tasks, [])
 
     def test_ocr_for_missing_target_lang_only(self) -> None:
@@ -68,7 +71,7 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
         self.assertEqual([t.track_id for t in sp.ocr_tasks], [10])
         self.assertTrue(sp.need_subfix)
 
-    def test_keep_non_text_if_only_other_language_text_exists(self) -> None:
+    def test_other_language_text_does_not_block_bitmap_ocr(self) -> None:
         inv = SubtitleInventory(
             text=[mk_track(1, "SubRip/SRT", "spa")],
             non_text=[
@@ -77,10 +80,10 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
             ],
         )
         sp = build_sub_plan(inv, external_text_langs=set())
-        self.assertEqual(sp.ocr_tasks, [])
-        self.assertEqual(sp.drop_ids, [])
-        self.assertEqual(set(sp.keep_ids), {1, 2, 3})
-        self.assertFalse(sp.need_subfix)
+        self.assertEqual(sorted(x.track_id for x in sp.ocr_tasks), [2, 3])
+        self.assertEqual(sp.drop_ids, [2, 3])
+        self.assertEqual(sp.keep_ids, [1])
+        self.assertTrue(sp.need_subfix)
 
     def test_non_target_non_text_is_kept_without_ocr(self) -> None:
         inv = SubtitleInventory(
@@ -114,18 +117,19 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
         self.assertTrue(sp.ocr_tasks[0].forced)
         self.assertTrue(sp.need_subfix)
 
-    def test_vobsub_target_lang_is_not_sent_to_ocr(self) -> None:
+    def test_vobsub_target_lang_is_sent_to_ocr(self) -> None:
         inv = SubtitleInventory(
             text=[],
             non_text=[mk_track(12, "VobSub", "ita")],
         )
         sp = build_sub_plan(inv, external_text_langs=set())
-        self.assertEqual(sp.ocr_tasks, [])
-        self.assertFalse(sp.need_subfix)
+        self.assertEqual([x.track_id for x in sp.ocr_tasks], [12])
+        self.assertEqual(sp.drop_ids, [12])
+        self.assertTrue(sp.need_subfix)
         ita = next(x for x in sp.audit if x.lang == "ita")
-        self.assertEqual(ita.decision_ocr, "unsupported-vobsub")
+        self.assertEqual(ita.decision_ocr, "all")
 
-    def test_mixed_pgs_and_vobsub_only_pgs_is_ocr_task(self) -> None:
+    def test_mixed_pgs_and_vobsub_both_are_ocr_tasks(self) -> None:
         inv = SubtitleInventory(
             text=[],
             non_text=[
@@ -134,12 +138,12 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
             ],
         )
         sp = build_sub_plan(inv, external_text_langs=set())
-        self.assertEqual([x.track_id for x in sp.ocr_tasks], [13])
+        self.assertEqual([x.track_id for x in sp.ocr_tasks], [13, 14])
         eng = next(x for x in sp.audit if x.lang == "eng")
-        self.assertEqual(eng.decision_ocr, "pgs-only-vobsub-skipped")
+        self.assertEqual(eng.decision_ocr, "all")
         self.assertTrue(sp.need_subfix)
 
-    def test_ambiguous_external_text_counts_and_blocks_ocr(self) -> None:
+    def test_ambiguous_external_text_counts_and_drops_bitmap(self) -> None:
         inv = SubtitleInventory(
             text=[],
             non_text=[mk_track(5, "HDMV PGS", "ita")],
@@ -147,6 +151,7 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
         sp = build_sub_plan(inv, external_text_langs={"und"})
         self.assertEqual(sp.ocr_tasks, [])
         self.assertEqual(sp.external_text_langs, ["und"])
+        self.assertEqual(sp.drop_ids, [5])
         self.assertTrue(sp.need_subfix)
 
     def test_force_extract_subs_sets_need_subfix_even_without_ocr(self) -> None:
@@ -294,6 +299,50 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
                     out_dir=Path(td),
                 )
         self.assertIn("pgsrip OCR supports PGS only", str(ctx.exception))
+
+    def test_supported_bitmap_codec_detection(self) -> None:
+        self.assertTrue(is_supported_bitmap_sub_codec("HDMV PGS"))
+        self.assertTrue(is_supported_bitmap_sub_codec("VobSub"))
+        self.assertTrue(is_supported_bitmap_sub_codec("dvd_subtitle"))
+        self.assertFalse(is_supported_bitmap_sub_codec("SubRip/SRT"))
+        self.assertFalse(is_supported_bitmap_sub_codec("ASS"))
+        self.assertFalse(is_supported_bitmap_sub_codec(""))
+
+    def test_parse_vobsub_idx_timestamps(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            idx_path = Path(td) / "track.idx"
+            idx_path.write_text(
+                "# VobSub index file\n"
+                "timestamp: 00:00:01:500, filepos: 000000000\n"
+                "timestamp: 00:00:03:000, filepos: 000000111\n",
+                encoding="utf-8",
+            )
+            windows = parse_vobsub_idx_timestamps(idx_path)
+            self.assertEqual(len(windows), 2)
+            self.assertAlmostEqual(windows[0][0], 1.5)
+            self.assertAlmostEqual(windows[0][1], 2.999)
+            self.assertAlmostEqual(windows[1][0], 3.0)
+            self.assertAlmostEqual(windows[1][1], 7.999)
+
+    def test_extract_vobsub_for_ocr_uses_idx_output(self) -> None:
+        tr = mk_track(16, "VobSub", "ita")
+
+        def fake_run_cmd_capture(cmd, *, env=None):
+            outp = Path(cmd[-1].split(":", 1)[1])
+            outp.write_text("# idx", encoding="utf-8")
+            return (0, "", "")
+
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            with patch("mediashrinker.run_cmd_capture", side_effect=fake_run_cmd_capture):
+                outp = extract_vobsub_for_ocr(
+                    mkvextract="mkvextract",
+                    local_src=td_path / "in.mkv",
+                    tr=tr,
+                    out_dir=td_path,
+                )
+            self.assertEqual(outp.suffix, ".idx")
+            self.assertTrue(outp.exists())
 
 
 if __name__ == "__main__":
