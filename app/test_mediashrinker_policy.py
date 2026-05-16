@@ -305,6 +305,8 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
         self.assertTrue(is_supported_bitmap_sub_codec("VobSub"))
         self.assertTrue(is_supported_bitmap_sub_codec("dvd_subtitle"))
         self.assertFalse(is_supported_bitmap_sub_codec("SubRip/SRT"))
+        self.assertFalse(is_supported_bitmap_sub_codec("ASS"))
+        self.assertFalse(is_supported_bitmap_sub_codec(""))
 
     def test_parse_vobsub_idx_timestamps(self) -> None:
         with tempfile.TemporaryDirectory() as td:

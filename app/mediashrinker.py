@@ -1294,7 +1294,7 @@ def mkv_lang_to_tesseract_lang(lang3: str) -> str:
     return "und"
 
 def _parse_vobsub_timestamp(raw: str) -> float:
-    # VobSub .idx timestamps use HH:MM:SS:MS where the fourth field is milliseconds.
+    # VobSub .idx timestamps use HH:MM:SS:MS where MS is a 3-digit millisecond field.
     m = re.fullmatch(r"(\d+):(\d+):(\d+):(\d+)", raw.strip())
     if not m:
         raise RuntimeError(f"invalid VobSub timestamp: {raw}")
@@ -1358,7 +1358,6 @@ def ocr_bitmap_image_to_text(image_path: Path, *, tessdata_prefix: str, ocr_lang
     if not langs:
         raise RuntimeError("no supported OCR language selected for bitmap OCR")
 
-    os.environ["TESSDATA_PREFIX"] = tessdata_prefix
     with Image.open(image_path) as img:
         gray = img.convert("L")
         # Bitmap subtitles are usually bright text over black/transparent background; a very
@@ -1366,7 +1365,11 @@ def ocr_bitmap_image_to_text(image_path: Path, *, tessdata_prefix: str, ocr_lang
         bbox = gray.point(lambda p: 255 if p > OCR_BBOX_THRESHOLD else 0).getbbox()
         if bbox:
             gray = gray.crop(bbox)
-        text = pytesseract.image_to_string(gray, lang="+".join(langs), config="--psm 6").strip()
+        text = pytesseract.image_to_string(
+            gray,
+            lang="+".join(langs),
+            config=f'--tessdata-dir "{tessdata_prefix}" --psm 6',
+        ).strip()
     text = re.sub(r"\r\n?", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
