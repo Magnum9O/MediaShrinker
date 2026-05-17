@@ -871,7 +871,8 @@ class App:
         effective_encoder = self.resolve_encoder(cfg.get("encoder", "auto"))
         aborted_run = self.latest_aborted_run()
         title_targets = self.title_targets(cfg["movies_dir"], cfg["tv_dir"])
-        active_target = str((payload.get("config") or {}).get("target_path") or "").strip()
+        live_target = str((payload.get("config") or {}).get("target_path") or "").strip()
+        active_target = live_target if running else ""
 
         def checked(name: str) -> str:
             return " checked" if self._enabled(cfg.get(name)) else ""
@@ -902,7 +903,7 @@ class App:
         target_options_html = "".join(target_options)
         single_scope_default = "single" if active_target else "library"
         current_target_html = (
-            f"<div class='chip warn'>active target: {h(Path(active_target).name)}</div>" if active_target else ""
+            f"<div class='chip warn' id='active-target-chip'>active target: {h(Path(active_target).name)}</div>" if active_target else ""
         )
 
         # Unified Control Room UI (global theme + English-only).
@@ -952,7 +953,10 @@ class App:
       <div id="single-target-wrap" class="card" style="margin:0 0 12px 0;padding:12px;background:var(--paper2);display:none">
         <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
           <div style="font-size:13px;font-weight:600">Selezione singolo titolo</div>
-          {current_target_html}
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            {current_target_html}
+            <div class="chip" id="selected-target-chip" style="display:none"></div>
+          </div>
         </div>
         <label>Filtra titoli</label>
         <input id="target-filter" placeholder="Cerca titolo..." style="margin-bottom:8px">
@@ -1053,11 +1057,19 @@ class App:
   const wrap = document.getElementById('single-target-wrap');
   const select = document.getElementById('target-path');
   const filter = document.getElementById('target-filter');
+  const selectedTargetChip = document.getElementById('selected-target-chip');
   const baseOptions = Array.from(select.options).map(o => ({{
     value:o.value,
     text:o.text,
     library:o.dataset.library || '',
   }}));
+
+  function baseName(path){{
+    if(!path) return '';
+    const norm = String(path).replace(/\\\\/g,'/');
+    const parts = norm.split('/');
+    return parts[parts.length - 1] || norm;
+  }}
 
   function renderOptions(){{
     const currentLib = lib.value;
@@ -1086,6 +1098,19 @@ class App:
     }}
   }}
 
+  function syncSelectedTarget(){{
+    if(!selectedTargetChip) return;
+    const single = scope.value === 'single';
+    const value = select.value || '';
+    if(single && value){{
+      selectedTargetChip.style.display = 'inline-block';
+      selectedTargetChip.textContent = 'selected: ' + baseName(value);
+    }} else {{
+      selectedTargetChip.style.display = 'none';
+      selectedTargetChip.textContent = '';
+    }}
+  }}
+
   function syncScope(){{
     const single = scope.value === 'single';
     wrap.style.display = single ? 'block' : 'none';
@@ -1095,14 +1120,22 @@ class App:
       if(libValue) lib.value = libValue;
     }}
     renderOptions();
+    syncSelectedTarget();
   }}
 
   scope.addEventListener('change', syncScope);
-  lib.addEventListener('change', renderOptions);
-  filter.addEventListener('input', renderOptions);
+  lib.addEventListener('change', function(){{
+    renderOptions();
+    syncSelectedTarget();
+  }});
+  filter.addEventListener('input', function(){{
+    renderOptions();
+    syncSelectedTarget();
+  }});
   select.addEventListener('change', syncScope);
   renderOptions();
   syncScope();
+  syncSelectedTarget();
 }})();
 </script>
 """
