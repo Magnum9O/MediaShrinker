@@ -880,6 +880,9 @@ class App:
         def selected(current: Any, value: str) -> str:
             return " selected" if str(current or "") == value else ""
 
+        def helpdot(text: str) -> str:
+            return f"<span class='helpdot' title='{h(text)}' aria-label='{h(text)}'>?</span>"
+
         target_options = [
             "<option value=''>Full library scan / run</option>",
         ]
@@ -922,6 +925,11 @@ class App:
   {nav_html()}
 </div>
 {message_html}
+
+<style>
+.helpdot{{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:999px;border:1px solid rgba(21,32,51,.14);background:#fff;color:var(--muted);font-size:11px;font-weight:800;cursor:help;vertical-align:middle;margin-left:6px}}
+.fieldhint{{margin-top:5px;font-size:12px;color:var(--muted);line-height:1.4}}
+</style>
 
 <div class="grid">
   <div class="card">
@@ -966,38 +974,45 @@ class App:
       </div>
 
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
-        <div><label>Parallel jobs</label><input name="jobs" value="{h(cfg['jobs'])}" inputmode="numeric"></div>
         <div>
-          <label>Encoder</label>
+          <label>File in parallelo {helpdot("Quanti file processare insieme durante RUN. Valore alto = piu velocita, ma anche piu carico su CPU, RAM e disco. Se fai OCR sottotitoli bitmap, di solito conviene restare bassi.")}</label>
+          <input name="jobs" value="{h(cfg['jobs'])}" inputmode="numeric">
+          <div class="fieldhint">Consiglio pratico: per NAS compatti e OCR sottotitoli, parti da <span class="mono">1</span>.</div>
+        </div>
+        <div>
+          <label>Motore video {helpdot("Decide come convertire il video quando serve. auto prova ad usare l'accelerazione hardware disponibile; libx265 usa solo CPU ed e molto piu lento.")}</label>
           <select name="encoder">
-            <option value="auto"{selected(cfg['encoder'], 'auto')}>auto (effective: {h(effective_encoder)})</option>
-            <option value="hevc_nvenc"{selected(cfg['encoder'], 'hevc_nvenc')}>hevc_nvenc (NVIDIA)</option>
-            <option value="hevc_vaapi"{selected(cfg['encoder'], 'hevc_vaapi')}>hevc_vaapi (Intel/AMD)</option>
-            <option value="libx265"{selected(cfg['encoder'], 'libx265')}>libx265 (CPU)</option>
+            <option value="auto"{selected(cfg['encoder'], 'auto')}>Auto rilevamento (attuale: {h(effective_encoder)})</option>
+            <option value="hevc_nvenc"{selected(cfg['encoder'], 'hevc_nvenc')}>GPU NVIDIA - hevc_nvenc</option>
+            <option value="hevc_vaapi"{selected(cfg['encoder'], 'hevc_vaapi')}>Accelerazione hardware Linux - hevc_vaapi</option>
+            <option value="libx265"{selected(cfg['encoder'], 'libx265')}>Solo CPU - libx265</option>
           </select>
+          <div class="fieldhint">Se il NAS espone <span class="mono">/dev/dri</span>, di solito conviene <span class="mono">hevc_vaapi</span> o <span class="mono">auto</span>.</div>
         </div>
         <div>
-          <label>Encoding profile</label>
+          <label>Profilo qualità / spazio {helpdot("Sceglie quanto essere aggressivi nella ricodifica video. balanced e il compromesso generale; space_saver riduce di piu ma puo sacrificare qualita; quality e hq conservano di piu ma lavorano di piu.")}</label>
           <select name="encoding_profile">
-            <option value="space_saver"{selected(cfg.get('encoding_profile','balanced'), 'space_saver')}>space_saver</option>
-            <option value="balanced"{selected(cfg.get('encoding_profile','balanced'), 'balanced')}>balanced</option>
-            <option value="quality"{selected(cfg.get('encoding_profile','balanced'), 'quality')}>quality</option>
-            <option value="hq"{selected(cfg.get('encoding_profile','balanced'), 'hq')}>hq</option>
+            <option value="space_saver"{selected(cfg.get('encoding_profile','balanced'), 'space_saver')}>Space saver</option>
+            <option value="balanced"{selected(cfg.get('encoding_profile','balanced'), 'balanced')}>Balanced</option>
+            <option value="quality"{selected(cfg.get('encoding_profile','balanced'), 'quality')}>Quality</option>
+            <option value="hq"{selected(cfg.get('encoding_profile','balanced'), 'hq')}>HQ</option>
           </select>
+          <div class="fieldhint">Per uso quotidiano: <span class="mono">Balanced</span>.</div>
         </div>
         <div>
-          <label>OCR engine</label>
+          <label>Metodo OCR sottotitoli {helpdot("Serve per convertire sottotitoli immagine in testo SRT. pgsrip e la scelta normale; none disabilita del tutto l'OCR.")}</label>
           <select name="ocr_engine">
-            <option value="pgsrip"{selected(cfg['ocr_engine'], 'pgsrip')}>pgsrip</option>
-            <option value="none"{selected(cfg['ocr_engine'], 'none')}>none</option>
+            <option value="pgsrip"{selected(cfg['ocr_engine'], 'pgsrip')}>Attivo - pgsrip / tesseract</option>
+            <option value="none"{selected(cfg['ocr_engine'], 'none')}>Disattivato</option>
           </select>
+          <div class="fieldhint">Se vuoi correggere PGS o VobSub, deve restare attivo.</div>
         </div>
       </div>
 
             <div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0">
-        <input type="hidden" name="extract_pgs" value="0"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="extract_pgs" value="1"{checked('extract_pgs')} style="width:auto"> estrai PGS / OCR</label>
-        <input type="hidden" name="force_extract_subs" value="0"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="force_extract_subs" value="1"{checked('force_extract_subs')} style="width:auto"> Forza estrazione/OCR sottotitoli (anche su file già HEVC)</label>
-        <input type="hidden" name="delete_bak" value="0"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="delete_bak" value="1"{checked('delete_bak')} style="width:auto"> elimina .bak dopo swap riuscito</label>
+        <input type="hidden" name="extract_pgs" value="0"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="extract_pgs" value="1"{checked('extract_pgs')} style="width:auto"> Converti sottotitoli immagine in testo {helpdot("Quando trova sottotitoli bitmap come PGS o VobSub, prova a convertirli in SRT testuali. Utile per evitare carico extra in riproduzione.")}</label>
+        <input type="hidden" name="force_extract_subs" value="0"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="force_extract_subs" value="1"{checked('force_extract_subs')} style="width:auto"> Correggi sottotitoli anche se il video non viene ricodificato {helpdot("Normalmente i sottotitoli vengono sistemati quando il file e gia in lavorazione. Questa opzione forza il passaggio sottotitoli anche su file gia HEVC o gia OK lato video.")}</label>
+        <input type="hidden" name="delete_bak" value="0"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="delete_bak" value="1"{checked('delete_bak')} style="width:auto"> Elimina backup .bak dopo swap riuscito {helpdot("Dopo la sostituzione finale, cancella il file di backup. Lascialo spento finche stai ancora testando.")}</label>
       </div>
 
       <details class="adv">
