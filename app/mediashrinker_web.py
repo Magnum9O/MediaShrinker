@@ -1602,71 +1602,7 @@ class App:
             )
             return page("MediaShrinker Live", body)
 
-        p = live.get("payload") or {}
-        totals = p.get("totals") or {}
-        status = p.get("status") or "unknown"
-        mode = p.get("mode") or "-"
-        run_id = int(live.get("run_id") or 0)
-        cfg = p.get("config") or {}
-        results = p.get("results") or []
-        plan = p.get("plan") or []
-        jobs_live = p.get("jobs_live") or []
-        log_tail = live.get("log_tail") or []
-        results_paths = {str(r.get("path")) for r in results if r.get("path")}
-        pending = [x for x in plan if str(x.get("path") or "") and str(x.get("path") or "") not in results_paths]
-        target_path = str(cfg.get("target_path") or "").strip()
-        current_item = None
-        if jobs_live:
-            for j in jobs_live:
-                txt = str(j.get("text") or "").strip()
-                if txt and txt.lower() != "idle":
-                    current_item = txt
-                    break
-        if not current_item and pending:
-            current_item = Path(str(pending[0].get("path") or "")).name
-        report_json_path = str(live.get("report_json_path") or "")
-        report_json_link = "/report_json?path=" + quote(report_json_path, safe="") if report_json_path else ""
-        action_buttons = []
-        if run_id > 0:
-            action_buttons.append(f"<a class='navbtn' href='/run?id={run_id}'>Apri run #{run_id}</a>")
-        if report_json_link:
-            action_buttons.append(f"<a class='navbtn' href='{report_json_link}' target='_blank'>Apri report JSON</a>")
-        action_buttons_html = "".join(action_buttons)
-        live_jobs_html = "".join(
-            f"<div class='item'><div class='n'>J{int(j.get('slot') or 0)}</div><div class='m'>{h(j.get('text') or 'idle')}</div></div>"
-            for j in jobs_live
-        ) or "<div class='item m'>No active worker details yet.</div>"
-        pending_html = "".join(
-            "<div class='item'>"
-            f"<div class='n'>{h(Path(str(x.get('path') or '')).name)}</div>"
-            "<div class='m'>"
-            f"{'<span class=\"chip warn\">transcode</span>' if x.get('need_transcode') else ''}"
-            f"{'<span class=\"chip ok\">subfix</span>' if x.get('need_subfix') else ''}"
-            f"{h(' | '.join((x.get('reasons_video') or [])[:3]))}"
-            "</div>"
-            "</div>"
-            for x in pending[:20]
-        ) or "<div class='item m'>No pending items.</div>"
-        recent_html = "".join(
-            "<div class='item'>"
-            f"<div class='n'>{h(Path(str(x.get('path') or '')).name)}</div>"
-            f"<div class='m'><span class='chip {classify_chip(str(x.get('action') or x.get('error') or 'done'))}'>{h(x.get('action') or ('failed' if x.get('error') else 'done'))}</span> {h(x.get('error') or '')}</div>"
-            "</div>"
-            for x in results[-15:]
-        ) or "<div class='item m'>No results yet.</div>"
-        log_html = h("\n".join(log_tail)) if log_tail else "No live log lines yet."
-        status_cards = [
-            ("Run", f"#{run_id or '-'}"),
-            ("Stato", str(status)),
-            ("Modalita", str(mode).upper()),
-            ("Tempo", hms(p.get("run_wall_sec"))),
-            ("In coda", str(totals.get("to_process_count", 0))),
-            ("Completati", str(totals.get("results_done_count", 0))),
-        ]
-        cards_html = "".join(
-            f"<div class='card' style='margin:0;padding:12px;background:var(--paper2)'><div class='muted' style='font-size:12px'>{h(label)}</div><div style='font-size:24px;font-weight:800'>{h(value)}</div></div>"
-            for label, value in status_cards
-        )
+        live_json = json.dumps(live, ensure_ascii=False)
         body = f"""
 <div class="topbar">
   <div class="brand">
@@ -1696,38 +1632,27 @@ class App:
     <div class="lead">
       Stato live del job corrente. Qui devono emergere subito file attivo, coda, log e accesso al report.
     </div>
-    <div class="chips" style="margin-top:12px">
-      <span class="chip {classify_chip(status)}">stato: {h(status)}</span>
-      <span class="chip">modalita: {h(mode)}</span>
-      <span class="chip">tempo: {hms(p.get('run_wall_sec'))}</span>
-      <span class="chip">target: {h(Path(target_path).name if target_path else 'libreria intera')}</span>
-    </div>
-    <div class="live-actions">{action_buttons_html}</div>
+    <div id="live-chips" class="chips" style="margin-top:12px"></div>
+    <div id="live-actions" class="live-actions"></div>
   </div>
-  <div class="metric-strip">{cards_html}</div>
+  <div id="live-metrics" class="metric-strip"></div>
 </div>
 <div class="live-layout">
   <div style="display:grid;gap:12px">
     <div class="card">
       <h2>Attivita corrente</h2>
       <div class="hint" style="margin-bottom:10px">File o fase che richiede attenzione adesso.</div>
-      <div style="font-size:20px;font-weight:800;margin-bottom:10px">{h(current_item or 'In attesa di attivita dettagliata')}</div>
-      <div class="list">{live_jobs_html}</div>
+      <div id="current-item" style="font-size:20px;font-weight:800;margin-bottom:10px">In attesa di attivita dettagliata</div>
+      <div id="live-jobs" class="list"></div>
     </div>
-    <div class="card"><h2>Preview coda</h2><div class="list">{pending_html}</div></div>
-    <div class="card"><h2>Risultati recenti</h2><div class="list">{recent_html}</div></div>
+    <div class="card"><h2>Preview coda</h2><div id="pending-list" class="list"></div></div>
+    <div class="card"><h2>Risultati recenti</h2><div id="recent-list" class="list"></div></div>
     <details class="adv">
       <summary>Advanced</summary>
       <div class="grid" style="margin-top:12px">
-        <div class="card" style="margin:0"><h2>Run scope</h2><pre>{h(json.dumps({
-            "library": cfg.get("library"),
-            "target_path": target_path or "(full library)",
-            "encoder": cfg.get("encoder"),
-            "jobs": cfg.get("jobs"),
-            "profile": cfg.get("encoding_profile"),
-        }, indent=2, ensure_ascii=False))}</pre></div>
-        <div class="card" style="margin:0"><h2>Config</h2><pre>{h(json.dumps(cfg, indent=2, ensure_ascii=False))}</pre></div>
-        <div class="card" style="margin:0"><h2>Totals</h2><pre>{h(json.dumps(totals, indent=2, ensure_ascii=False))}</pre></div>
+        <div class="card" style="margin:0"><h2>Run scope</h2><pre id="adv-scope">-</pre></div>
+        <div class="card" style="margin:0"><h2>Config</h2><pre id="adv-config">-</pre></div>
+        <div class="card" style="margin:0"><h2>Totals</h2><pre id="adv-totals">-</pre></div>
       </div>
     </details>
   </div>
@@ -1735,7 +1660,7 @@ class App:
     <div class="console-head">
       <div>
         <h2 style="margin-bottom:4px">Log live</h2>
-        <div class="muted" style="font-size:12px">{h(live.get('report_log_path') or '')}</div>
+        <div id="log-path" class="muted" style="font-size:12px"></div>
       </div>
       <div class="console-actions">
         <button type="button" id="live-toggle" class="console-btn active">Live ON</button>
@@ -1743,17 +1668,56 @@ class App:
         <button type="button" id="jump-bottom" class="console-btn">Vai in fondo</button>
       </div>
     </div>
-    <pre id="log-console" class="log-console">{log_html}</pre>
+    <pre id="log-console" class="log-console">Loading live log...</pre>
   </div>
 </div>
 <script>
 (function(){{
+  const INITIAL_LIVE = {live_json};
   const logEl = document.getElementById('log-console');
   const liveBtn = document.getElementById('live-toggle');
   const followBtn = document.getElementById('follow-toggle');
   const jumpBtn = document.getElementById('jump-bottom');
+  const chipsEl = document.getElementById('live-chips');
+  const actionsEl = document.getElementById('live-actions');
+  const metricsEl = document.getElementById('live-metrics');
+  const currentItemEl = document.getElementById('current-item');
+  const jobsEl = document.getElementById('live-jobs');
+  const pendingEl = document.getElementById('pending-list');
+  const recentEl = document.getElementById('recent-list');
+  const logPathEl = document.getElementById('log-path');
+  const advScopeEl = document.getElementById('adv-scope');
+  const advConfigEl = document.getElementById('adv-config');
+  const advTotalsEl = document.getElementById('adv-totals');
   let liveOn = sessionStorage.getItem('ms_live_on') !== '0';
   let followTail = sessionStorage.getItem('ms_follow_tail') !== '0';
+  let currentLog = '';
+  let refreshTimer = null;
+  let reqSeq = 0;
+  function esc(s){{
+    return (s===null||s===undefined)?'':String(s).replace(/[&<>\\\"']/g, m => ({{'&':'&amp;','<':'&lt;','>':'&gt;','\\\"':'&quot;',\"'\":'&#39;'}}[m]));
+  }}
+  function fmtHms(sec){{
+    if(sec===null||sec===undefined) return '-';
+    const s = Math.max(0, Math.round(Number(sec) || 0));
+    const hh = String(Math.floor(s/3600)).padStart(2,'0');
+    const mm = String(Math.floor((s%3600)/60)).padStart(2,'0');
+    const ss = String(s%60).padStart(2,'0');
+    return hh + ':' + mm + ':' + ss;
+  }}
+  function classifyChip(text){{
+    const lower = String(text || '').toLowerCase();
+    if(lower.includes('fail') || lower.includes('error') || lower.includes('abort')) return 'bad';
+    if(lower.includes('transcode') || lower.includes('process') || lower.includes('run') || lower.includes('scan') || lower.includes('ocr') || lower.includes('subfix') || lower.includes('running')) return 'warn';
+    return 'ok';
+  }}
+  function jsonPretty(v){{
+    try {{
+      return JSON.stringify(v, null, 2);
+    }} catch (_e) {{
+      return String(v ?? '');
+    }}
+  }}
   function syncBtns(){{
     liveBtn.textContent = liveOn ? 'Live ON' : 'Live OFF';
     followBtn.textContent = followTail ? 'Segui tail' : 'Segui tail OFF';
@@ -1765,24 +1729,136 @@ class App:
   function jumpBottom(){{
     logEl.scrollTop = logEl.scrollHeight;
   }}
+  function baseName(path){{
+    if(!path) return '';
+    const norm = String(path).replace(/\\\\/g,'/');
+    const parts = norm.split('/');
+    return parts[parts.length - 1] || norm;
+  }}
+  function renderListItem(name, meta){{
+    return "<div class='item'><div class='n'>" + esc(name) + "</div><div class='m'>" + meta + "</div></div>";
+  }}
+  function renderLive(payloadWrap){{
+    if(!payloadWrap || !payloadWrap.ok){{
+      return;
+    }}
+    const p = payloadWrap.payload || {{}};
+    const cfg = p.config || {{}};
+    const totals = p.totals || {{}};
+    const results = Array.isArray(p.results) ? p.results : [];
+    const plan = Array.isArray(p.plan) ? p.plan : [];
+    const jobsLive = Array.isArray(p.jobs_live) ? p.jobs_live : [];
+    const status = p.status || 'unknown';
+    const mode = String(p.mode || '-').toUpperCase();
+    const runId = Number(payloadWrap.run_id || 0);
+    const targetPath = String(cfg.target_path || '').trim();
+    const reportJsonPath = String(payloadWrap.report_json_path || '');
+    const reportLogPath = String(payloadWrap.report_log_path || '');
+    const logTail = Array.isArray(payloadWrap.log_tail) ? payloadWrap.log_tail : [];
+    const resultsPaths = new Set(results.map(x => String((x && x.path) || '')).filter(Boolean));
+    const pending = plan.filter(x => {{
+      const pth = String((x && x.path) || '');
+      return pth && !resultsPaths.has(pth);
+    }});
+    let currentItem = '';
+    for(const j of jobsLive){{
+      const txt = String((j && j.text) || '').trim();
+      if(txt && txt.toLowerCase() !== 'idle') {{
+        currentItem = txt;
+        break;
+      }}
+    }}
+    if(!currentItem && pending.length) currentItem = baseName(pending[0].path || '');
+    chipsEl.innerHTML = [
+      "<span class='chip " + classifyChip(status) + "'>stato: " + esc(status) + "</span>",
+      "<span class='chip'>modalita: " + esc(mode) + "</span>",
+      "<span class='chip'>tempo: " + esc(fmtHms(p.run_wall_sec)) + "</span>",
+      "<span class='chip'>target: " + esc(targetPath ? baseName(targetPath) : 'libreria intera') + "</span>"
+    ].join('');
+    const actions = [];
+    if(runId > 0) actions.push("<a class='navbtn' href='/run?id=" + runId + "'>Apri run #" + runId + "</a>");
+    if(reportJsonPath) actions.push("<a class='navbtn' href='/report_json?path=" + encodeURIComponent(reportJsonPath) + "' target='_blank'>Apri report JSON</a>");
+    actionsEl.innerHTML = actions.join('');
+    const cards = [
+      ['Run', runId > 0 ? ('#' + runId) : '-'],
+      ['Stato', status],
+      ['Modalita', mode],
+      ['Tempo', fmtHms(p.run_wall_sec)],
+      ['In coda', String(totals.to_process_count ?? 0)],
+      ['Completati', String(totals.results_done_count ?? 0)],
+    ];
+    metricsEl.innerHTML = cards.map(([label, value]) =>
+      "<div class='card' style='margin:0;padding:12px;background:var(--paper2)'><div class='muted' style='font-size:12px'>" + esc(label) + "</div><div style='font-size:24px;font-weight:800'>" + esc(value) + "</div></div>"
+    ).join('');
+    currentItemEl.textContent = currentItem || 'In attesa di attivita dettagliata';
+    jobsEl.innerHTML = jobsLive.map(j =>
+      renderListItem('J' + Number((j && j.slot) || 0), esc((j && j.text) || 'idle'))
+    ).join('') || "<div class='item m'>No active worker details yet.</div>";
+    pendingEl.innerHTML = pending.slice(0, 20).map(x => {{
+      const bits = [];
+      if(x.need_transcode) bits.push("<span class='chip warn'>transcode</span>");
+      if(x.need_subfix) bits.push("<span class='chip ok'>subfix</span>");
+      const reasons = Array.isArray(x.reasons_video) ? x.reasons_video.slice(0,3).join(' | ') : '';
+      if(reasons) bits.push(esc(reasons));
+      return renderListItem(baseName(x.path || ''), bits.join(' '));
+    }}).join('') || "<div class='item m'>No pending items.</div>";
+    recentEl.innerHTML = results.slice(-15).map(x => {{
+      const action = x.action || (x.error ? 'failed' : 'done');
+      const meta = "<span class='chip " + classifyChip(String(action || x.error || 'done')) + "'>" + esc(action) + "</span> " + esc(x.error || '');
+      return renderListItem(baseName(x.path || ''), meta);
+    }}).join('') || "<div class='item m'>No results yet.</div>";
+    logPathEl.textContent = reportLogPath || '';
+    const nextLog = logTail.length ? logTail.join('\\n') : 'No live log lines yet.';
+    const wasAtBottom = (logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 8);
+    if(nextLog !== currentLog){{
+      if(currentLog && nextLog.startsWith(currentLog)){{
+        logEl.textContent += nextLog.slice(currentLog.length);
+      }} else {{
+        logEl.textContent = nextLog;
+      }}
+      currentLog = nextLog;
+      if(followTail || wasAtBottom) jumpBottom();
+    }}
+    advScopeEl.textContent = jsonPretty({{
+      library: cfg.library,
+      target_path: targetPath || '(full library)',
+      encoder: cfg.encoder,
+      jobs: cfg.jobs,
+      profile: cfg.encoding_profile,
+    }});
+    advConfigEl.textContent = jsonPretty(cfg);
+    advTotalsEl.textContent = jsonPretty(totals);
+  }}
+  async function refreshLive(){{
+    const mySeq = ++reqSeq;
+    try {{
+      const r = await fetch('/live.json', {{ cache:'no-store' }});
+      const d = await r.json();
+      if(mySeq !== reqSeq) return;
+      renderLive(d);
+    }} catch (_e) {{
+    }}
+  }}
+  function scheduleRefresh(){{
+    if(refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(function(){{
+      if(!liveOn) return;
+      refreshLive();
+    }}, 2000);
+  }}
   liveBtn.addEventListener('click', function(){{
     liveOn = !liveOn;
     syncBtns();
+    if(liveOn) refreshLive();
   }});
   followBtn.addEventListener('click', function(){{
     followTail = !followTail;
     syncBtns();
   }});
   jumpBtn.addEventListener('click', jumpBottom);
-  if(followTail) jumpBottom();
   syncBtns();
-  setInterval(function(){{
-    if(!liveOn) return;
-    sessionStorage.setItem('ms_log_scroll', String(logEl.scrollTop || 0));
-    window.location.reload();
-  }}, 2000);
-  const savedScroll = parseInt(sessionStorage.getItem('ms_log_scroll') || '0', 10);
-  if(!Number.isNaN(savedScroll) && !followTail) logEl.scrollTop = savedScroll;
+  renderLive(INITIAL_LIVE);
+  scheduleRefresh();
   if(followTail) jumpBottom();
 }})();
 </script>
