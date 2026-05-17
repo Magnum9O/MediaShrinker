@@ -1350,6 +1350,36 @@ def render_vobsub_event_image(ffmpeg_bin: str, idx_path: Path, out_png: Path, *,
     if not out_png.exists() or out_png.stat().st_size == 0:
         raise RuntimeError(f"ffmpeg did not render subtitle bitmap image for {idx_path.name}")
 
+def render_vobsub_event_image_from_source(
+    ffmpeg_bin: str,
+    src_path: Path,
+    subtitle_stream_index: int,
+    out_png: Path,
+    *,
+    at_sec: float,
+) -> None:
+    cmd = [
+        ffmpeg_bin,
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-ss",
+        f"{max(0.0, at_sec):.3f}",
+        "-i",
+        str(src_path),
+        "-frames:v",
+        "1",
+        "-filter_complex",
+        f"[0:v][0:{subtitle_stream_index}]overlay=shortest=1",
+        str(out_png),
+    ]
+    rc, out, err = run_cmd_capture(cmd)
+    if rc != 0:
+        raise RuntimeError(f"ffmpeg source render failed rc={rc}: {(err or out).strip()}")
+    if not out_png.exists() or out_png.stat().st_size == 0:
+        raise RuntimeError(f"ffmpeg did not render subtitle bitmap image from source for stream {subtitle_stream_index}")
+
 def iter_bitmap_ocr_sample_times(start_sec: float, end_sec: float) -> List[float]:
     if end_sec <= start_sec:
         return [start_sec]
@@ -1391,13 +1421,24 @@ def ocr_bitmap_image_to_text(image_path: Path, *, tessdata_prefix: str, ocr_lang
 
     with Image.open(image_path) as img:
         gray = img.convert("L")
+        if gray.width >= 1280 and gray.height >= 720:
+            # When OCRing a subtitle rendered on top of the original video frame, focus on the
+            # usual dialogue area near the bottom-center to avoid torches/highlights polluting
+            # the crop box.
+            left = int(gray.width * 0.10)
+            top = int(gray.height * 0.58)
+            right = int(gray.width * 0.90)
+            bottom = int(gray.height * 0.96)
+            roi = gray.crop((left, top, right, bottom))
+        else:
+            roi = gray
         # Bitmap subtitles are usually bright text over black/transparent background; a very
         # low threshold keeps faint antialiased glyph edges inside the crop box for OCR.
-        bbox = gray.point(lambda p: 255 if p > OCR_BBOX_THRESHOLD else 0).getbbox()
+        bbox = roi.point(lambda p: 255 if p > OCR_BBOX_THRESHOLD else 0).getbbox()
         if bbox:
-            gray = gray.crop(bbox)
+            roi = roi.crop(bbox)
         text = pytesseract.image_to_string(
-            gray,
+            roi,
             lang="+".join(langs),
             config=f'--tessdata-dir "{tessdata_prefix}" --psm 6',
         ).strip()
@@ -1422,6 +1463,8 @@ def vobsub_idx_to_srt(
     tessdata_prefix: str,
     ocr_langs: List[str],
     progress_cb: Optional[Callable[[int, int], None]] = None,
+    src_video_path: Optional[Path] = None,
+    subtitle_stream_index: Optional[int] = None,
 ) -> Path:
     td = tempfile.mkdtemp(prefix="mediashrinker-vobsub-ocr-")
     srt_path = idx_path.with_suffix(".srt")
@@ -1433,7 +1476,16 @@ def vobsub_idx_to_srt(
             best_score = 0
             for sample_idx, sample_sec in enumerate(iter_bitmap_ocr_sample_times(start_sec, end_sec), start=1):
                 png_path = Path(td) / f"{idx_path.stem}.{seq:04d}.{sample_idx:02d}.png"
-                render_vobsub_event_image(ffmpeg_bin, idx_path, png_path, at_sec=sample_sec)
+                if src_video_path is not None and subtitle_stream_index is not None:
+                    render_vobsub_event_image_from_source(
+                        ffmpeg_bin,
+                        src_video_path,
+                        subtitle_stream_index,
+                        png_path,
+                        at_sec=sample_sec,
+                    )
+                else:
+                    render_vobsub_event_image(ffmpeg_bin, idx_path, png_path, at_sec=sample_sec)
                 text = ocr_bitmap_image_to_text(
                     png_path,
                     tessdata_prefix=tessdata_prefix,
@@ -2953,6 +3005,8 @@ def main() -> int:
                                 tessdata_prefix=tessdata_prefix,
                                 ocr_langs=[mkv_lang_to_tesseract_lang(task.lang)],
                                 progress_cb=_vob_progress,
+                                src_video_path=sub_src,
+                                subtitle_stream_index=tr.id,
                             )
                         else:
                             raise RuntimeError(f"unsupported bitmap OCR codec for track {task.track_id}: {task.codec}")

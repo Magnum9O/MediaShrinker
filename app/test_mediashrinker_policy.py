@@ -431,6 +431,37 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
             self.assertIn("This is the subtitle text", content)
             self.assertNotIn("\nHi\n", content)
 
+    def test_vobsub_idx_to_srt_prefers_source_renderer_when_available(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            idx_path = td_path / "track.idx"
+            idx_path.write_text(
+                "# VobSub index file\n"
+                "timestamp: 00:00:10:000, filepos: 000000000\n",
+                encoding="utf-8",
+            )
+            src_path = td_path / "in.mkv"
+            src_path.write_text("dummy", encoding="utf-8")
+
+            def fake_source_render(ffmpeg_bin, src_video_path, subtitle_stream_index, out_png, *, at_sec):
+                out_png.write_text("frame", encoding="utf-8")
+
+            with patch("mediashrinker.render_vobsub_event_image_from_source", side_effect=fake_source_render) as src_mock, \
+                 patch("mediashrinker.render_vobsub_event_image") as idx_mock, \
+                 patch("mediashrinker.ocr_bitmap_image_to_text", return_value="Rendered from source"):
+                srt = vobsub_idx_to_srt(
+                    ffmpeg_bin="ffmpeg",
+                    idx_path=idx_path,
+                    tessdata_prefix=td,
+                    ocr_langs=["eng"],
+                    src_video_path=src_path,
+                    subtitle_stream_index=8,
+                )
+
+            self.assertTrue(src_mock.called)
+            self.assertFalse(idx_mock.called)
+            self.assertIn("Rendered from source", srt.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
