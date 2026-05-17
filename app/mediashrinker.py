@@ -21,7 +21,7 @@ import threading
 import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Set
+from typing import Any, Callable, Dict, List, Optional, Tuple, Set
 
 try:
     import pty  # Unix only
@@ -730,6 +730,9 @@ SUBTITLE_BOUNDARY_EPSILON_SEC = 0.001
 # and we want to keep faint antialiased edges inside the OCR crop box.
 OCR_BBOX_THRESHOLD = 8
 DEFAULT_LAST_BITMAP_SUB_DURATION_SEC = 5.0
+GOOD_BITMAP_OCR_SCORE = 28
+VOBSUB_OCR_PROGRESS_EVERY = 25
+VOBSUB_OCR_MAX_WORKERS = max(1, min(4, os.cpu_count() or 1))
 ITA_HINT_WORDS = {
     "che", "non", "per", "con", "sono", "come", "questo", "questa", "della",
     "delle", "degli", "allora", "anche", "perche", "perché", "quindi", "grazie",
@@ -1351,12 +1354,12 @@ def iter_bitmap_ocr_sample_times(start_sec: float, end_sec: float) -> List[float
     if end_sec <= start_sec:
         return [start_sec]
     span = max(0.0, end_sec - start_sec)
-    # VobSub cues are often not stably visible right at the first timestamp; sample a few
-    # points across the cue window and keep the best OCR result.
+    # VobSub cues are often not stably visible right at the first timestamp.
+    # Favor the middle of the cue, then retry near the end/start only if needed.
     points = [
-        start_sec + min(0.10, span * 0.20),
-        start_sec + min(0.35, span * 0.45),
         start_sec + (span * 0.50),
+        max(start_sec, end_sec - min(0.08, span * 0.18)),
+        start_sec + min(0.10, span * 0.20),
         max(start_sec, end_sec - min(0.10, span * 0.20)),
     ]
     out: List[float] = []
@@ -1418,14 +1421,14 @@ def vobsub_idx_to_srt(
     *,
     tessdata_prefix: str,
     ocr_langs: List[str],
+    progress_cb: Optional[Callable[[int, int], None]] = None,
 ) -> Path:
     td = tempfile.mkdtemp(prefix="mediashrinker-vobsub-ocr-")
     srt_path = idx_path.with_suffix(".srt")
     try:
-        entries: List[Tuple[float, float, str]] = []
-        last_text = ""
-        last_window: Optional[Tuple[float, float]] = None
-        for seq, (start_sec, end_sec) in enumerate(parse_vobsub_idx_timestamps(idx_path), start=1):
+        windows = parse_vobsub_idx_timestamps(idx_path)
+
+        def process_window(seq: int, start_sec: float, end_sec: float) -> Tuple[int, float, float, str]:
             best_text = ""
             best_score = 0
             for sample_idx, sample_sec in enumerate(iter_bitmap_ocr_sample_times(start_sec, end_sec), start=1):
@@ -1440,7 +1443,34 @@ def vobsub_idx_to_srt(
                 if text_score > best_score:
                     best_text = text
                     best_score = text_score
-            text = best_text.strip()
+                if text_score >= GOOD_BITMAP_OCR_SCORE:
+                    break
+            return (seq, start_sec, end_sec, best_text.strip())
+
+        rendered: List[Tuple[int, float, float, str]] = []
+        total_windows = len(windows)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(VOBSUB_OCR_MAX_WORKERS, total_windows or 1)) as ex:
+            fut_map = {
+                ex.submit(process_window, seq, start_sec, end_sec): seq
+                for seq, (start_sec, end_sec) in enumerate(windows, start=1)
+            }
+            done_count = 0
+            for fut in concurrent.futures.as_completed(fut_map):
+                rendered.append(fut.result())
+                done_count += 1
+                if progress_cb and (
+                    done_count == total_windows
+                    or done_count == 1
+                    or (done_count % VOBSUB_OCR_PROGRESS_EVERY) == 0
+                ):
+                    progress_cb(done_count, total_windows)
+
+        rendered.sort(key=lambda x: x[0])
+
+        entries: List[Tuple[float, float, str]] = []
+        last_text = ""
+        last_window: Optional[Tuple[float, float]] = None
+        for _, start_sec, end_sec, text in rendered:
             if not text:
                 continue
             if last_window and text == last_text:
@@ -2914,11 +2944,15 @@ def main() -> int:
                         elif is_vobsub_codec(task.codec):
                             idx_path = extract_vobsub_for_ocr(mkvextract, sub_src, tr, job_dir)
                             log(f"[OCR] ffmpeg+tesseract idx={idx_path.name} codec={task.codec} lang={task.lang} forced={task.forced}")
+                            def _vob_progress(done_count: int, total_count: int, *, track_id: int = task.track_id, lang: str = task.lang) -> None:
+                                set_slot_status(f"OCR t{track_id:02d} {lang} {done_count}/{total_count}")
+                                log(f"[OCR] VobSub progress t{track_id:02d} {lang}: {done_count}/{total_count}")
                             srt = vobsub_idx_to_srt(
                                 ffmpeg_bin,
                                 idx_path,
                                 tessdata_prefix=tessdata_prefix,
                                 ocr_langs=[mkv_lang_to_tesseract_lang(task.lang)],
+                                progress_cb=_vob_progress,
                             )
                         else:
                             raise RuntimeError(f"unsupported bitmap OCR codec for track {task.track_id}: {task.codec}")

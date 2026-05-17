@@ -369,9 +369,9 @@ class JellyfixSubtitlePolicyTests(unittest.TestCase):
     def test_iter_bitmap_ocr_sample_times_spans_window(self) -> None:
         samples = iter_bitmap_ocr_sample_times(10.0, 12.0)
         self.assertGreaterEqual(len(samples), 3)
-        self.assertGreater(samples[0], 10.0)
-        self.assertLess(samples[-1], 12.0)
-        self.assertEqual(samples, sorted(samples))
+        self.assertAlmostEqual(samples[0], 11.0)
+        self.assertTrue(all(10.0 <= x <= 12.0 for x in samples))
+        self.assertEqual(len(samples), len(set(samples)))
 
     def test_score_ocr_text_prefers_longer_real_text(self) -> None:
         self.assertGreater(score_ocr_text("Hello there"), score_ocr_text("Hi"))
